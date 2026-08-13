@@ -8,6 +8,13 @@ export interface ArtifactSummary {
   readonly canonicalStatus?: string;
   readonly activeProposalId?: string;
   readonly proposalStatus?: string;
+  /**
+   * When true, the artifact was hand-edited after its last approved review, making the
+   * stored review stale (docs/architecture/modules/05-reviewer-and-quality-gates.md §5.8).
+   * A synthetic review is queued automatically; downstream auto-pipeline is blocked until
+   * the re-assessment passes.
+   */
+  readonly reviewStale?: boolean;
   /** ISO timestamp of the last known update, used to order the Web console queue. */
   readonly updatedAt?: string;
 }

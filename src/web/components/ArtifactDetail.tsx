@@ -42,6 +42,16 @@ export function ArtifactDetail({ artifact, onAction, pending = false }: Artifact
 
       <BlockedStateBanner artifact={artifact} />
 
+      {artifact.reviewStale === true && (
+        <div className="review-stale-banner" role="alert">
+          <strong>⚠ review-stale</strong>
+          <span>
+            该工件在上次审批后被手工修改，原有 Reviewer 结果已失效。系统已触发异步 synthetic review；
+            在重新评审结果可用前，下游自动流程将被阻断（§5.8）。
+          </span>
+        </div>
+      )}
+
       <div className="inline-edit">
         <label htmlFor="inline-edit-note">短文本微修（结构字段 / 批注，≤{INLINE_EDIT_CHAR_LIMIT} 字）</label>
         <textarea

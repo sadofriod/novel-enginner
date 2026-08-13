@@ -231,3 +231,37 @@ model DerivedRebuildJob {
   @@index([status])
   @@map("derived_rebuild_jobs")
 }
+
+// ---------------------------------------------------------------------------
+// Search documents (summary-layer embedding index, §8.4)
+//
+// Only summary-shaped text is stored here — never full manuscript body text.
+// The `embedding` column uses pgvector's `vector(1536)` type (OpenAI
+// text-embedding-3-small dimension). The Prisma-unsupported vector column is
+// managed by the custom migration `enable_pgvector_and_search_documents`
+// rather than a generated migration. Prisma-visible columns (text, contentHash,
+// embedded flag) are used for cache-invalidation and incremental re-embedding
+// without requiring Prisma to know about the vector column itself.
+// ---------------------------------------------------------------------------
+
+model SearchDocument {
+  id           String   @id @default(uuid())
+  documentId   String   @unique
+  workspaceId  String
+  bookId       String
+  nodeId       String
+  kind         String
+  sourceRef    String
+  text         String
+  contentHash  String
+  /// Set to true after the out-of-process embedding job populates the
+  /// pgvector `embedding` column (managed via raw SQL, not Prisma).
+  embedded     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([workspaceId, bookId])
+  @@index([nodeId])
+  @@index([contentHash])
+  @@map("search_documents")
+}

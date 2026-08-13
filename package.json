@@ -16,6 +16,7 @@
     "@modelcontextprotocol/server-filesystem": "2026.7.10",
     "@prisma/client": "6.19.3",
     "ai": "^4.3.16",
+    "inngest": "^3.29.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "yaml": "^2.9.0",

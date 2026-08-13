@@ -54,6 +54,31 @@ function parseCanonicalFile(file: WorkspaceFileInput): CanonicalEntitySnapshot {
     );
   }
 
+  // docs/architecture/modules/03-domain-model.md §3.9:
+  // A chapter-manuscript body must contain a `# Scene {id}` heading for each id
+  // declared in `sceneAnchorIds`. Missing or extra anchors are a contract violation.
+  if (rule.kind === 'chapter-manuscript') {
+    const frontmatter = result.data as { sceneAnchorIds?: readonly string[] };
+    const declaredIds = frontmatter.sceneAnchorIds ?? [];
+    const bodySceneIds = new Set(parsed.scenes.keys());
+
+    const missing = declaredIds.filter((id) => !bodySceneIds.has(id));
+    const extra = [...bodySceneIds].filter((id) => !declaredIds.includes(id));
+
+    if (missing.length > 0 || extra.length > 0) {
+      const details: string[] = [];
+      if (missing.length > 0) {
+        details.push(`missing body anchors: ${missing.join(', ')}`);
+      }
+      if (extra.length > 0) {
+        details.push(`undeclared body anchors: ${extra.join(', ')}`);
+      }
+      throw new MarkdownContractError(
+        `Scene anchor mismatch in "${file.path}": ${details.join('; ')}.`,
+      );
+    }
+  }
+
   return {
     path: file.path,
     kind: rule.kind,

@@ -1,5 +1,7 @@
 import type { WorkspaceValidity } from '../domain/values';
 
+import { abortDriftedRuns, type RunSnapshotRef } from '../workflow/run-drift';
+import { reSyncState, type WorkspaceFileInput } from '../workspace/sync-engine';
 import { handleCommand } from './command-handler';
 import { RunEventBus } from './event-bus';
 import { RuntimeStore } from './store';
@@ -8,6 +10,16 @@ export interface CreateApiServerOptions {
   readonly store?: RuntimeStore;
   readonly eventBus?: RunEventBus;
   readonly getWorkspaceValidity?: (workspaceId: string) => WorkspaceValidity;
+  /**
+   * Optional callback for the POST /sync/re-sync-state route. When provided, the server
+   * executes a real `reSyncState` pass over the supplied files, triggers
+   * `abortDriftedRuns` for any write-related runs whose canonical version is now stale
+   * (docs/architecture/modules/04-workflows-and-agents.md §4.5), and returns the result.
+   */
+  readonly reSyncStateOptions?: {
+    readonly getActiveRuns: () => readonly RunSnapshotRef[];
+    readonly onRunsAborted?: (runIds: readonly string[]) => void;
+  };
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -27,6 +39,7 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
   const store = options.store ?? new RuntimeStore();
   const eventBus = options.eventBus ?? new RunEventBus();
   const getWorkspaceValidity = options.getWorkspaceValidity ?? (() => 'clean' as WorkspaceValidity);
+  const reSyncStateOptions = options.reSyncStateOptions;
 
   async function fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -151,6 +164,37 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
       }
     } catch {
       // Empty body is acceptable for sync commands; validation below reports specifics.
+    }
+
+    // docs/architecture/modules/04-workflows-and-agents.md §4.5:
+    // When a new canonical snapshot lands via `re-sync-state`, abort all active
+    // write-related runs whose `basedOnCanonicalVersion` is now stale.
+    if (syncIntent === 're-sync-state' && reSyncStateOptions !== undefined) {
+      const files = Array.isArray(body['files'])
+        ? (body['files'] as WorkspaceFileInput[])
+        : [];
+
+      const previousSnapshot = store.getLastKnownSnapshot();
+      const result = reSyncState(files, previousSnapshot);
+      store.setLastKnownSnapshot(result.snapshot);
+
+      if (result.validity !== 'invalid') {
+        const activeRuns = reSyncStateOptions.getActiveRuns();
+        const aborted = abortDriftedRuns(activeRuns, result.snapshot.snapshotId);
+        if (aborted.length > 0) {
+          const driftReasonById = new Map(aborted.map((d) => [d.run.runId, d.driftReason]));
+          const abortedIds = [...driftReasonById.keys()];
+          for (const runId of abortedIds) {
+            eventBus.publish({
+              type: 'run.aborted',
+              runId,
+              emittedAt: new Date().toISOString(),
+              data: { reason: driftReasonById.get(runId) },
+            });
+          }
+          reSyncStateOptions.onRunsAborted?.(abortedIds);
+        }
+      }
     }
 
     const payload = { ...body, intent: syncIntent, systemTaskType: syncIntent };

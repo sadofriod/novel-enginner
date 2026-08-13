@@ -36,7 +36,17 @@ export type CanonicalEntityKind = (typeof CANONICAL_ENTITY_KIND_VALUES)[number];
 
 export interface CanonicalLayoutRule {
   readonly kind: CanonicalEntityKind;
+  /**
+   * The canonical directory prefix used for listing and display. For rules that match a
+   * dynamic set of directories (e.g. `manuscript/volume-XXX`), this is the common root.
+   */
   readonly directory: string;
+  /**
+   * Optional RegExp applied to the full directory segment of a workspace-relative path
+   * instead of a strict equality check against `directory`. Used for rules where the
+   * directory itself follows a pattern (e.g. `manuscript/volume-001`).
+   */
+  readonly directoryPattern?: RegExp;
   readonly filePattern: RegExp;
   readonly schema: z.ZodTypeAny;
 }
@@ -64,7 +74,10 @@ export const CANONICAL_LAYOUT_RULES: readonly CanonicalLayoutRule[] = [
   },
   {
     kind: 'chapter-manuscript',
+    // docs/architecture/modules/02-canonical-workspace.md §2.2:
+    // manuscript files live under `manuscript/volume-XXX/chapter-XXXX.md`.
     directory: 'manuscript',
+    directoryPattern: /^manuscript\/volume-\d{3}$/,
     filePattern: /^chapter-\d{4}\.md$/,
     schema: ChapterManuscriptSchema,
   },
@@ -139,7 +152,13 @@ export function resolveLayoutRuleForPath(relativePath: string): CanonicalLayoutR
   const fileName = lastSlash === -1 ? normalized : normalized.slice(lastSlash + 1);
 
   return CANONICAL_LAYOUT_RULES.find(
-    (rule) => rule.directory === directory && rule.filePattern.test(fileName),
+    (rule) => {
+      const dirMatch =
+        rule.directoryPattern !== undefined
+          ? rule.directoryPattern.test(directory)
+          : rule.directory === directory;
+      return dirMatch && rule.filePattern.test(fileName);
+    },
   );
 }
 

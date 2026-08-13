@@ -44,6 +44,7 @@ export class RuntimeStore {
   private readonly commandIdByIdempotencyKey = new Map<string, string>();
   private readonly runsById = new Map<string, RunRecord>();
   private readonly artifactsByKey = new Map<string, ArtifactSummary>();
+  private lastKnownSnapshot: import('../workspace/sync-engine').WorkspaceSnapshot | undefined;
 
   findCommandByIdempotencyKey(idempotencyKey: string): CommandRecord | undefined {
     const commandId = this.commandIdByIdempotencyKey.get(idempotencyKey);
@@ -83,6 +84,16 @@ export class RuntimeStore {
   /** Lists every known run record, newest first, for the Web console's run trace view. */
   listRuns(): readonly RunRecord[] {
     return Array.from(this.runsById.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /** Returns the last workspace snapshot produced by a `re-sync-state` call. */
+  getLastKnownSnapshot(): import('../workspace/sync-engine').WorkspaceSnapshot | undefined {
+    return this.lastKnownSnapshot;
+  }
+
+  /** Stores the latest workspace snapshot after a successful `re-sync-state` pass. */
+  setLastKnownSnapshot(snapshot: import('../workspace/sync-engine').WorkspaceSnapshot): void {
+    this.lastKnownSnapshot = snapshot;
   }
 }
 

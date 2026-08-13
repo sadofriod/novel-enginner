@@ -255,3 +255,32 @@ export function assembleAgentCapabilities(
 
   return applicable.map((capability) => capability.id);
 }
+
+/**
+ * Validates the capability registry against discovered sources at server startup, per
+ * docs/architecture/modules/08-graph-search-and-capabilities.md §8.5:
+ * "registered but absent from every discovery source is a blocking configuration error."
+ *
+ * Throws `CapabilityAssemblyError` if any registered capability is missing from all
+ * discovery sources so the server fails fast rather than silently degrading at runtime.
+ *
+ * @param registryMarkdown  Raw content of `state/capabilities/registry.md`.
+ * @param mcpConfigJson     Parsed content of `mcp.json`.
+ */
+export function validateCapabilitiesOrThrow(
+  registryMarkdown: string,
+  mcpConfigJson: { readonly servers?: Record<string, unknown> },
+): CapabilityReconciliationResult {
+  const registered = parseCapabilityRegistry(registryMarkdown);
+  const discovered = discoverMcpCapabilities(mcpConfigJson);
+  const result = reconcileCapabilities(registered, discovered);
+
+  if (result.blockingCapabilityIds.length > 0) {
+    throw new CapabilityAssemblyError(
+      `Runtime startup blocked: registered capabilities are missing from all discovery sources: ${result.blockingCapabilityIds.join(', ')}.`,
+      result.blockingCapabilityIds,
+    );
+  }
+
+  return result;
+}

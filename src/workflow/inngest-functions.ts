@@ -215,7 +215,7 @@ export const volumeOutlineFunction = inngest.createFunction(
     const { workspaceId, bookId, targetId, intent } = event.data;
 
     await step.run('re-sync-state', async () => {
-      await fetch(
+      const response = await fetch(
         `${process.env['NOVEL_API_BASE_URL'] ?? 'http://localhost:3000'}/sync/re-sync-state`,
         {
           method: 'POST',
@@ -223,6 +223,9 @@ export const volumeOutlineFunction = inngest.createFunction(
           body: JSON.stringify({ workspaceId, bookId }),
         },
       );
+      if (!response.ok) {
+        throw new NonRetriableError(`re-sync-state failed: ${response.status}`);
+      }
     });
 
     const proposalResult = await step.run('create-proposal', async () => {
@@ -348,7 +351,7 @@ export const rebuildGraphFunction = inngest.createFunction(
   async ({ event, step }) => {
     const { workspaceId, bookId } = event.data;
     await step.run('rebuild', async () => {
-      await fetch(
+      const response = await fetch(
         `${process.env['NOVEL_API_BASE_URL'] ?? 'http://localhost:3000'}/sync/rebuild-graph`,
         {
           method: 'POST',
@@ -356,6 +359,9 @@ export const rebuildGraphFunction = inngest.createFunction(
           body: JSON.stringify({ workspaceId, bookId }),
         },
       );
+      if (!response.ok) {
+        throw new NonRetriableError(`rebuild-graph failed: ${response.status}`);
+      }
     });
     return { workspaceId, bookId, status: 'graph-rebuilt' };
   },

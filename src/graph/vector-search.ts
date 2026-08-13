@@ -76,79 +76,38 @@ export async function vectorSearch(
     );
   }
 
-  const limit = options.limit ?? 10;
+  // Validate and clamp limit to a safe positive integer so it can be
+  // interpolated directly into the SQL LIMIT clause without risk of
+  // invalid SQL or unexpected behaviour from caller-supplied values.
+  const limit = Math.max(1, Math.floor(options.limit ?? 10));
+
   const vectorLiteral = `[${queryEmbedding.join(',')}]`;
 
-  const kindsFilter =
-    options.kinds !== undefined && options.kinds.length > 0
-      ? `AND kind = ANY($4::text[])`
-      : '';
-
-  const bookFilter = options.bookId !== undefined ? `AND "bookId" = $3` : '';
-
-  if (options.bookId !== undefined && options.kinds !== undefined && options.kinds.length > 0) {
-    const rows = await prisma.$queryRawUnsafe<VectorSearchResult[]>(
-      `SELECT "documentId", "nodeId", kind, "sourceRef", text,
-              1 - (embedding <=> $1::vector) AS similarity
-       FROM search_documents
-       WHERE "workspaceId" = $2
-         ${bookFilter}
-         ${kindsFilter}
-         AND embedded = true
-       ORDER BY embedding <=> $1::vector
-       LIMIT ${limit}`,
-      vectorLiteral,
-      options.workspaceId,
-      options.bookId,
-      options.kinds,
-    );
-    return rows;
-  }
+  // Build WHERE clause and parameter list dynamically to avoid duplicating
+  // the filter logic across multiple query branches.
+  const whereClauses: string[] = ['"workspaceId" = $2', 'embedded = true'];
+  const params: unknown[] = [vectorLiteral, options.workspaceId];
 
   if (options.bookId !== undefined) {
-    const rows = await prisma.$queryRawUnsafe<VectorSearchResult[]>(
-      `SELECT "documentId", "nodeId", kind, "sourceRef", text,
-              1 - (embedding <=> $1::vector) AS similarity
-       FROM search_documents
-       WHERE "workspaceId" = $2
-         AND "bookId" = $3
-         AND embedded = true
-       ORDER BY embedding <=> $1::vector
-       LIMIT ${limit}`,
-      vectorLiteral,
-      options.workspaceId,
-      options.bookId,
-    );
-    return rows;
+    params.push(options.bookId);
+    whereClauses.push(`"bookId" = $${params.length}`);
   }
 
   if (options.kinds !== undefined && options.kinds.length > 0) {
-    const rows = await prisma.$queryRawUnsafe<VectorSearchResult[]>(
-      `SELECT "documentId", "nodeId", kind, "sourceRef", text,
-              1 - (embedding <=> $1::vector) AS similarity
-       FROM search_documents
-       WHERE "workspaceId" = $2
-         AND kind = ANY($3::text[])
-         AND embedded = true
-       ORDER BY embedding <=> $1::vector
-       LIMIT ${limit}`,
-      vectorLiteral,
-      options.workspaceId,
-      options.kinds,
-    );
-    return rows;
+    params.push(options.kinds);
+    whereClauses.push(`kind = ANY($${params.length}::text[])`);
   }
+
+  const whereClause = whereClauses.join(' AND ');
 
   const rows = await prisma.$queryRawUnsafe<VectorSearchResult[]>(
     `SELECT "documentId", "nodeId", kind, "sourceRef", text,
             1 - (embedding <=> $1::vector) AS similarity
      FROM search_documents
-     WHERE "workspaceId" = $2
-       AND embedded = true
+     WHERE ${whereClause}
      ORDER BY embedding <=> $1::vector
      LIMIT ${limit}`,
-    vectorLiteral,
-    options.workspaceId,
+    ...params,
   );
   return rows;
 }

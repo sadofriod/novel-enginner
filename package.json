@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test --experimental-strip-types",
+    "test": "corepack pnpm dlx tsx --test",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [],

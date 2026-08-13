@@ -6,7 +6,7 @@ import {
   ChapterOutlineSchema,
   CommandEnvelopeSchema,
   ReviewerResultSchema,
-} from './schema.ts';
+} from './schema';
 
 test('BookSchema validates a valid book payload', () => {
   const result = BookSchema.safeParse({

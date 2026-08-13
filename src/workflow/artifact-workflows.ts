@@ -1,0 +1,127 @@
+import type { Proposal, StableId } from '../domain/schema';
+import type { ProposalArtifactType, WorkspaceValidity } from '../domain/values';
+
+import {
+  attemptCanonicalCommit,
+  createProposal,
+  decideApproval,
+  exportDraft,
+  rejectProposal,
+  requeueAfterWorkspaceRecovery,
+  type ApprovalDecisionResult,
+  type CommitAttemptResult,
+  type CreateProposalResult,
+  type ProposalRegistry,
+} from './proposal-lifecycle';
+
+/**
+ * v1 workflow skeletons (docs/architecture/modules/10-v1-execution-plan.md
+ * §10.7): one skeleton per proposable artifact type that is actually
+ * reachable through `intent: propose | regenerate` today. Each skeleton is a
+ * thin, artifact-specific façade over the shared, pure proposal-lifecycle
+ * rules in `./proposal-lifecycle` — it intentionally does not reimplement
+ * supersede / approval / commit-blocked state machines per artifact type.
+ *
+ * These are step-orchestration skeletons, not the full Inngest workflow
+ * wiring (Phase 4/5 infra): they define the sequence of pure decisions a
+ * workflow step function should call, so the actual Inngest step
+ * implementation stays a thin adapter over this module.
+ */
+
+export interface ProposalWorkflowStepInput {
+  readonly proposal: Proposal;
+  readonly registry: ProposalRegistry;
+}
+
+export interface ProposalWorkflowStepResult extends CreateProposalResult {
+  readonly artifactType: ProposalArtifactType;
+}
+
+function createArtifactProposal(
+  expectedArtifactType: ProposalArtifactType,
+  input: ProposalWorkflowStepInput,
+): ProposalWorkflowStepResult {
+  if (input.proposal.artifactType !== expectedArtifactType) {
+    throw new Error(
+      `Expected proposal for artifactType "${expectedArtifactType}" but received "${input.proposal.artifactType}".`,
+    );
+  }
+  const result = createProposal(input);
+  return { ...result, artifactType: expectedArtifactType };
+}
+
+/** Shared workflow surface every artifact-specific skeleton exposes. */
+export interface ArtifactWorkflow {
+  readonly artifactType: ProposalArtifactType;
+  /** `propose` / `regenerate` step: creates (and supersedes as needed). */
+  propose(input: ProposalWorkflowStepInput): ProposalWorkflowStepResult;
+  /** `approve` / `override-approve` step. */
+  approve(
+    proposal: Proposal,
+    currentCanonicalVersion: StableId,
+    isOverride: boolean,
+    overrideAuditId?: StableId,
+  ): ApprovalDecisionResult;
+  /** `reject` step. */
+  reject(proposal: Proposal): Proposal;
+  /** Canonical-commit step, gated on workspace validity. */
+  commit(proposal: Proposal, workspaceValidity: WorkspaceValidity): CommitAttemptResult;
+  /** Re-queues a `commit-blocked` / `waiting-sync` proposal once the workspace is clean again. */
+  recoverFromBlocked(proposal: Proposal, workspaceValidity: WorkspaceValidity): Proposal;
+  /** `export-draft` terminal step. */
+  exportDraft(proposal: Proposal): Proposal;
+}
+
+function buildArtifactWorkflow(artifactType: ProposalArtifactType): ArtifactWorkflow {
+  return {
+    artifactType,
+    propose: (input) => createArtifactProposal(artifactType, input),
+    approve: (proposal, currentCanonicalVersion, isOverride, overrideAuditId) =>
+      decideApproval({
+        proposal,
+        currentCanonicalVersion,
+        isOverride,
+        ...(overrideAuditId !== undefined ? { overrideAuditId } : {}),
+      }),
+    reject: rejectProposal,
+    commit: attemptCanonicalCommit,
+    recoverFromBlocked: requeueAfterWorkspaceRecovery,
+    exportDraft,
+  };
+}
+
+/**
+ * `chapter-outline` workflow skeleton
+ * (docs/architecture/modules/10-v1-execution-plan.md §10.7).
+ */
+export const chapterOutlineWorkflow: ArtifactWorkflow = buildArtifactWorkflow('chapter-outline');
+
+/**
+ * `chapter-manuscript` workflow skeleton
+ * (docs/architecture/modules/10-v1-execution-plan.md §10.7).
+ */
+export const chapterManuscriptWorkflow: ArtifactWorkflow = buildArtifactWorkflow('chapter-manuscript');
+
+/**
+ * `volume-outline` workflow skeleton
+ * (docs/architecture/modules/10-v1-execution-plan.md §10.7).
+ */
+export const volumeOutlineWorkflow: ArtifactWorkflow = buildArtifactWorkflow('volume-outline');
+
+/**
+ * `world-change` workflow skeleton
+ * (docs/architecture/modules/10-v1-execution-plan.md §10.7).
+ */
+export const worldChangeWorkflow: ArtifactWorkflow = buildArtifactWorkflow('world-change');
+
+const ARTIFACT_WORKFLOWS: ReadonlyMap<ProposalArtifactType, ArtifactWorkflow> = new Map([
+  ['chapter-outline', chapterOutlineWorkflow],
+  ['chapter-manuscript', chapterManuscriptWorkflow],
+  ['volume-outline', volumeOutlineWorkflow],
+  ['world-change', worldChangeWorkflow],
+]);
+
+/** Resolves the workflow skeleton registered for a given artifact type, if any. */
+export function resolveArtifactWorkflow(artifactType: ProposalArtifactType): ArtifactWorkflow | undefined {
+  return ARTIFACT_WORKFLOWS.get(artifactType);
+}

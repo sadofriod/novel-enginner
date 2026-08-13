@@ -1,0 +1,233 @@
+// Prisma schema for the V1 persistence foundation.
+//
+// Scope (see docs/architecture/modules/10-v1-execution-plan.md, Phase 4):
+// - proposals
+// - runs
+// - run steps / checkpoints
+// - reviewer results
+// - override audits
+// - synthetic commits
+// - capability discovery snapshots
+// - derived rebuild jobs
+//
+// Canonical state itself (books/volumes/characters/...) lives in the
+// filesystem-backed canonical workspace (see src/domain) and is NOT
+// duplicated here. This schema only persists the runtime/audit layer that
+// sits on top of that canonical workspace: proposals, run execution state,
+// review/override history, synthetic commit bookkeeping, capability
+// discovery snapshots, and derived (rebuildable) index jobs.
+//
+// Enum string values intentionally mirror src/domain/values.ts so that
+// application code can validate/round-trip through the shared zod schemas
+// instead of re-deriving a second source of truth here.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Proposals
+// ---------------------------------------------------------------------------
+
+model Proposal {
+  id                      String    @id @default(uuid())
+  proposalId              String    @unique
+  workspaceId             String
+  bookId                  String
+  artifactType            String
+  targetId                String
+  status                  String
+  intent                  String
+  basedOnCanonicalVersion String
+  entityVersionRefs       Json?
+  parentRunId             String
+  supersedesProposalId    String?
+  latestReviewResultId    String?
+  overrideAuditId         String?
+  bundledDiffRefs         Json?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  run              Run              @relation(fields: [parentRunId], references: [runId])
+  reviewerResults  ReviewerResult[]
+  overrideAudits   OverrideAudit[]
+
+  @@index([workspaceId, bookId])
+  @@index([targetId])
+  @@index([status])
+  @@map("proposals")
+}
+
+// ---------------------------------------------------------------------------
+// Runs
+// ---------------------------------------------------------------------------
+
+model Run {
+  id             String    @id @default(uuid())
+  runId          String    @unique
+  workspaceId    String
+  bookId         String
+  commandIntent  String
+  status         String
+  requestedBy    String
+  idempotencyKey String
+  basedOnCanonicalVersion String?
+  driftReason    String?
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  steps           RunStep[]
+  proposals       Proposal[]
+  overrideAudits  OverrideAudit[]
+  rebuildJobs     DerivedRebuildJob[]
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, bookId])
+  @@index([status])
+  @@map("runs")
+}
+
+// ---------------------------------------------------------------------------
+// Run steps / checkpoints
+// ---------------------------------------------------------------------------
+
+model RunStep {
+  id            String    @id @default(uuid())
+  runId         String
+  stepKey       String
+  sequence      Int
+  status        String
+  isCheckpoint  Boolean   @default(false)
+  input         Json?
+  output        Json?
+  errorReason   String?
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  run Run @relation(fields: [runId], references: [runId])
+
+  @@unique([runId, sequence])
+  @@index([runId, stepKey])
+  @@map("run_steps")
+}
+
+// ---------------------------------------------------------------------------
+// Reviewer results
+// ---------------------------------------------------------------------------
+
+model ReviewerResult {
+  id                String   @id @default(uuid())
+  reviewResultId    String   @unique
+  proposalId        String
+  approved          Boolean
+  hardFailures      Json
+  dimensionScores   Json
+  totalScore        Int
+  rewriteDirectives Json
+  overrideEligible  Boolean
+  createdAt         DateTime @default(now())
+
+  proposal Proposal @relation(fields: [proposalId], references: [proposalId])
+
+  @@index([proposalId])
+  @@map("reviewer_results")
+}
+
+// ---------------------------------------------------------------------------
+// Override audits
+// ---------------------------------------------------------------------------
+
+model OverrideAudit {
+  id             String   @id @default(uuid())
+  overrideAuditId String  @unique
+  proposalId     String
+  overrideReason String
+  overrideBy     String
+  relatedRunId   String
+  failedChecks   Json
+  scoreSnapshot  Json
+  timestamp      DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  proposal Proposal @relation(fields: [proposalId], references: [proposalId])
+  run      Run      @relation(fields: [relatedRunId], references: [runId])
+
+  @@index([proposalId])
+  @@index([relatedRunId])
+  @@map("override_audits")
+}
+
+// ---------------------------------------------------------------------------
+// Synthetic commits
+// ---------------------------------------------------------------------------
+
+model SyntheticCommit {
+  id                 String   @id @default(uuid())
+  syntheticCommitId  String   @unique
+  workspaceId        String
+  bookId             String
+  targetFilePaths    Json
+  aggregatedFrom     Json?
+  canonicalVersion   String
+  message            String
+  createdAt          DateTime @default(now())
+
+  @@index([workspaceId, bookId])
+  @@map("synthetic_commits")
+}
+
+// ---------------------------------------------------------------------------
+// Capability discovery snapshots
+// ---------------------------------------------------------------------------
+
+model CapabilityDiscoverySnapshot {
+  id             String   @id @default(uuid())
+  snapshotId     String   @unique
+  workspaceId    String
+  status         String
+  capabilityId   String?
+  source         String?
+  details        String?
+  discoveredAt   DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([status])
+  @@map("capability_discovery_snapshots")
+}
+
+// ---------------------------------------------------------------------------
+// Derived rebuild jobs (graph/search/embedding reindex — always rebuildable,
+// never a source of truth)
+// ---------------------------------------------------------------------------
+
+model DerivedRebuildJob {
+  id           String    @id @default(uuid())
+  jobId        String    @unique
+  workspaceId  String
+  bookId       String?
+  jobType      String
+  status       String
+  triggeredBy  String?
+  runId        String?
+  errorReason  String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  run Run? @relation(fields: [runId], references: [runId])
+
+  @@index([workspaceId, bookId])
+  @@index([status])
+  @@map("derived_rebuild_jobs")
+}

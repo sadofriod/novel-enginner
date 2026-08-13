@@ -1,0 +1,126 @@
+import type { ProposalArtifactType, SystemTaskType } from '../domain/values';
+import type { StableId } from '../domain/schema';
+import { WorkspaceSyncSession } from '../workspace/session';
+
+export interface ArtifactSummary {
+  readonly artifactType: ProposalArtifactType;
+  readonly targetId: StableId;
+  readonly canonicalStatus?: string;
+  readonly activeProposalId?: string;
+  readonly proposalStatus?: string;
+  /**
+   * When true, the artifact was hand-edited after its last approved review, making the
+   * stored review stale (docs/architecture/modules/05-reviewer-and-quality-gates.md §5.8).
+   * A synthetic review is queued automatically; downstream auto-pipeline is blocked until
+   * the re-assessment passes.
+   */
+  readonly reviewStale?: boolean;
+  /** ISO timestamp of the last known update, used to order the Web console queue. */
+  readonly updatedAt?: string;
+}
+
+export interface RunRecord {
+  readonly runId: string;
+  readonly commandId: string;
+  readonly workspaceId: StableId;
+  readonly bookId: StableId;
+  readonly artifactType?: ProposalArtifactType;
+  readonly systemTaskType?: SystemTaskType;
+  readonly targetId?: StableId;
+  status: string;
+  nextExpectedState: string;
+  readonly createdAt: string;
+  updatedAt: string;
+}
+
+export interface CommandRecord {
+  readonly commandId: string;
+  readonly runId: string;
+  readonly idempotencyKey: string;
+  status: string;
+  readonly acceptedAt: string;
+}
+
+/**
+ * Process-local storage for commands/runs/artifacts. This backs the minimal HTTP/SSE
+ * control surface described in docs/architecture/modules/07-api-events-and-runtime.md
+ * for v1; a real deployment would replace this with the Postgres-backed persistence
+ * from Phase 4 without changing the public shapes below.
+ */
+export class RuntimeStore {
+  private readonly commandsById = new Map<string, CommandRecord>();
+  private readonly commandIdByIdempotencyKey = new Map<string, string>();
+  private readonly runsById = new Map<string, RunRecord>();
+  private readonly artifactsByKey = new Map<string, ArtifactSummary>();
+  private lastKnownSnapshot: import('../workspace/sync-engine').WorkspaceSnapshot | undefined;
+  private readonly syncSessionByWorkspaceId = new Map<string, WorkspaceSyncSession>();
+
+  findCommandByIdempotencyKey(idempotencyKey: string): CommandRecord | undefined {
+    const commandId = this.commandIdByIdempotencyKey.get(idempotencyKey);
+    return commandId === undefined ? undefined : this.commandsById.get(commandId);
+  }
+
+  saveCommand(record: CommandRecord): void {
+    this.commandsById.set(record.commandId, record);
+    this.commandIdByIdempotencyKey.set(record.idempotencyKey, record.commandId);
+  }
+
+  getCommand(commandId: string): CommandRecord | undefined {
+    return this.commandsById.get(commandId);
+  }
+
+  saveRun(record: RunRecord): void {
+    this.runsById.set(record.runId, record);
+  }
+
+  getRun(runId: string): RunRecord | undefined {
+    return this.runsById.get(runId);
+  }
+
+  upsertArtifact(summary: ArtifactSummary): void {
+    this.artifactsByKey.set(artifactKey(summary.artifactType, summary.targetId), summary);
+  }
+
+  getArtifact(artifactType: string, targetId: string): ArtifactSummary | undefined {
+    return this.artifactsByKey.get(artifactKey(artifactType, targetId));
+  }
+
+  /** Lists every known artifact summary, for the Web console's approval queue. */
+  listArtifacts(): readonly ArtifactSummary[] {
+    return Array.from(this.artifactsByKey.values());
+  }
+
+  /** Lists every known run record, newest first, for the Web console's run trace view. */
+  listRuns(): readonly RunRecord[] {
+    return Array.from(this.runsById.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /** Returns the last workspace snapshot produced by a `re-sync-state` call. */
+  getLastKnownSnapshot(): import('../workspace/sync-engine').WorkspaceSnapshot | undefined {
+    return this.lastKnownSnapshot;
+  }
+
+  /** Stores the latest workspace snapshot after a successful `re-sync-state` pass. */
+  setLastKnownSnapshot(snapshot: import('../workspace/sync-engine').WorkspaceSnapshot): void {
+    this.lastKnownSnapshot = snapshot;
+  }
+
+  /**
+   * Returns (or lazily creates) the per-workspace editing session used to aggregate
+   * consecutive saves into a single synthetic commit per
+   * docs/architecture/modules/02-canonical-workspace.md §2.6.
+   */
+  getOrCreateSyncSession(workspaceId: string): WorkspaceSyncSession {
+    const existing = this.syncSessionByWorkspaceId.get(workspaceId);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const session = new WorkspaceSyncSession(this.lastKnownSnapshot);
+    this.syncSessionByWorkspaceId.set(workspaceId, session);
+    return session;
+  }
+}
+
+function artifactKey(artifactType: string, targetId: string): string {
+  return `${artifactType}::${targetId}`;
+}

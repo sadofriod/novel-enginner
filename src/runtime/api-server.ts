@@ -1,7 +1,8 @@
 import type { WorkspaceValidity } from '../domain/values';
 
 import { abortDriftedRuns, type RunSnapshotRef } from '../workflow/run-drift';
-import { reSyncState, type WorkspaceFileInput } from '../workspace/sync-engine';
+import { WorkspaceSyncSession, type SyntheticCommit } from '../workspace/session';
+import { type WorkspaceFileInput } from '../workspace/sync-engine';
 import { handleCommand } from './command-handler';
 import { RunEventBus } from './event-bus';
 import { RuntimeStore } from './store';
@@ -19,6 +20,13 @@ export interface CreateApiServerOptions {
   readonly reSyncStateOptions?: {
     readonly getActiveRuns: () => readonly RunSnapshotRef[];
     readonly onRunsAborted?: (runIds: readonly string[]) => void;
+    /**
+     * Called with the synthetic commit produced by an editing session after each
+     * successful re-sync pass that changed at least one canonical file, per
+     * docs/architecture/modules/07-api-events-and-runtime.md §7.9: "手工改动经
+     * re-sync-state 进入系统时，也要生成一条合成 commit 审计记录".
+     */
+    readonly onSyntheticCommit?: (commit: SyntheticCommit) => void;
   };
 }
 
@@ -174,13 +182,16 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
         ? (body['files'] as WorkspaceFileInput[])
         : [];
 
-      const previousSnapshot = store.getLastKnownSnapshot();
-      const result = reSyncState(files, previousSnapshot);
-      store.setLastKnownSnapshot(result.snapshot);
+      // Use the per-workspace WorkspaceSyncSession so that repeated saves are
+      // aggregated into a single synthetic commit (§2.6).
+      const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : 'default';
+      const session = store.getOrCreateSyncSession(workspaceId);
+      const sessionState = session.applySave(files);
+      store.setLastKnownSnapshot(sessionState.snapshot);
 
-      if (result.validity !== 'invalid') {
+      if (sessionState.validity !== 'invalid') {
         const activeRuns = reSyncStateOptions.getActiveRuns();
-        const aborted = abortDriftedRuns(activeRuns, result.snapshot.snapshotId);
+        const aborted = abortDriftedRuns(activeRuns, sessionState.snapshot.snapshotId);
         if (aborted.length > 0) {
           const driftReasonById = new Map(aborted.map((d) => [d.run.runId, d.driftReason]));
           const abortedIds = [...driftReasonById.keys()];
@@ -194,7 +205,37 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
           }
           reSyncStateOptions.onRunsAborted?.(abortedIds);
         }
+
+        // docs/architecture/modules/07-api-events-and-runtime.md §7.9:
+        // Generate a synthetic commit audit record after a successful re-sync with
+        // changed paths.
+        const syntheticCommit = session.commitSyntheticSession();
+        if (syntheticCommit !== undefined) {
+          reSyncStateOptions.onSyntheticCommit?.(syntheticCommit);
+        }
       }
+
+      const payload = { ...body, intent: syncIntent, systemTaskType: syncIntent };
+      const result = handleCommand(payload, { store, eventBus, getWorkspaceValidity });
+
+      // docs/architecture/modules/07-api-events-and-runtime.md §7.6:
+      // Emit workspace.valid or workspace.invalid SSE events after a re-sync pass so
+      // subscribers on the re-sync run's channel can react to the workspace state change.
+      if (result.status === 'accepted') {
+        const wsEventType = sessionState.validity === 'invalid' ? 'workspace.invalid' : 'workspace.valid';
+        eventBus.publish({
+          type: wsEventType,
+          runId: result.runId,
+          emittedAt: new Date().toISOString(),
+          data: {
+            validity: sessionState.validity,
+            snapshotId: sessionState.snapshot.snapshotId,
+            ...(sessionState.errors.length > 0 ? { errors: sessionState.errors } : {}),
+          },
+        });
+      }
+
+      return jsonResponse(result, result.status === 'accepted' ? 202 : 400);
     }
 
     const payload = { ...body, intent: syncIntent, systemTaskType: syncIntent };

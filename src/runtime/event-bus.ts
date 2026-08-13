@@ -40,6 +40,7 @@ export class RunEventBus {
   }
 
   history(runId: string): readonly RunEvent[] {
-    return this.historyByRun.get(runId) ?? [];
+    const stored = this.historyByRun.get(runId);
+    return stored === undefined ? [] : [...stored];
   }
 }

@@ -1,5 +1,6 @@
 import type { ProposalArtifactType, SystemTaskType } from '../domain/values';
 import type { StableId } from '../domain/schema';
+import { WorkspaceSyncSession } from '../workspace/session';
 
 export interface ArtifactSummary {
   readonly artifactType: ProposalArtifactType;
@@ -45,6 +46,7 @@ export class RuntimeStore {
   private readonly runsById = new Map<string, RunRecord>();
   private readonly artifactsByKey = new Map<string, ArtifactSummary>();
   private lastKnownSnapshot: import('../workspace/sync-engine').WorkspaceSnapshot | undefined;
+  private readonly syncSessionByWorkspaceId = new Map<string, WorkspaceSyncSession>();
 
   findCommandByIdempotencyKey(idempotencyKey: string): CommandRecord | undefined {
     const commandId = this.commandIdByIdempotencyKey.get(idempotencyKey);
@@ -94,6 +96,21 @@ export class RuntimeStore {
   /** Stores the latest workspace snapshot after a successful `re-sync-state` pass. */
   setLastKnownSnapshot(snapshot: import('../workspace/sync-engine').WorkspaceSnapshot): void {
     this.lastKnownSnapshot = snapshot;
+  }
+
+  /**
+   * Returns (or lazily creates) the per-workspace editing session used to aggregate
+   * consecutive saves into a single synthetic commit per
+   * docs/architecture/modules/02-canonical-workspace.md §2.6.
+   */
+  getOrCreateSyncSession(workspaceId: string): WorkspaceSyncSession {
+    const existing = this.syncSessionByWorkspaceId.get(workspaceId);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const session = new WorkspaceSyncSession(this.lastKnownSnapshot);
+    this.syncSessionByWorkspaceId.set(workspaceId, session);
+    return session;
   }
 }
 

@@ -96,7 +96,12 @@ function detectBannedTerms(text: string, bannedTerms: readonly string[]): boolea
 function detectParagraphLengthViolation(text: string, rules: ReviewerRuleThresholds): boolean {
   const paragraphs = text.split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter((paragraph) => paragraph.length > 0);
   return paragraphs.some(
-    (paragraph) => paragraph.length < rules.paragraphMinChars || paragraph.length > rules.paragraphMaxChars,
+    // Use codepoint count ([...p].length) for consistency with inline-edit-guard and
+    // the "字" unit in §5.5, which counts characters rather than UTF-16 code units.
+    (paragraph) => {
+      const cpLen = [...paragraph].length;
+      return cpLen < rules.paragraphMinChars || cpLen > rules.paragraphMaxChars;
+    },
   );
 }
 

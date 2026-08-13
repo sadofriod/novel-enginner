@@ -20,7 +20,7 @@ import {
   type CapabilityRegistrationState,
 } from '../domain/schema';
 
-import type { AgentRole } from './model-tiers';
+import { AGENT_ROLE_VALUES, type AgentRole } from './model-tiers';
 
 export const CAPABILITY_TYPE_VALUES = ['agent', 'skill', 'mcp', 'prompt-pack'] as const;
 
@@ -81,6 +81,17 @@ function requireType(id: string, entry: RawRegistryEntry): CapabilityType {
   return entry.type as CapabilityType;
 }
 
+function requireAllowedAgents(id: string, value: unknown): readonly AgentRole[] {
+  const raw = toStringArray(value);
+  const invalid = raw.filter((role) => !AGENT_ROLE_VALUES.includes(role as AgentRole));
+  if (invalid.length > 0) {
+    throw new CapabilityRegistryParseError(
+      `Capability registry entry "${id}" has unknown allowedAgents values: ${invalid.join(', ')} (valid: ${AGENT_ROLE_VALUES.join(', ')}).`,
+    );
+  }
+  return raw as readonly AgentRole[];
+}
+
 function parseRegistryEntry(entry: RawRegistryEntry): RegisteredCapability {
   const id = requireId(entry);
   const type = requireType(id, entry);
@@ -90,7 +101,7 @@ function parseRegistryEntry(entry: RawRegistryEntry): RegisteredCapability {
     type,
     enabled: entry.enabled !== false,
     visibility: entry.visibility === 'restricted' ? 'restricted' : 'public',
-    allowedAgents: toStringArray(entry.allowedAgents) as readonly AgentRole[],
+    allowedAgents: requireAllowedAgents(id, entry.allowedAgents),
     applicableArtifactTypes: toStringArray(entry.applicableArtifactTypes),
   };
 }

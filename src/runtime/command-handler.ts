@@ -211,13 +211,18 @@ function toAcceptedResponse(
   run: RunRecord | undefined,
   envelope: CommandEnvelope,
 ): CommandAcceptedResponse {
+  // Prefer the stored run fields over the incoming envelope so that idempotent replays
+  // always reflect the original command that was recorded, not a potentially different
+  // payload that happened to share the same idempotencyKey.
+  const artifactType = run?.artifactType ?? envelope.artifactType;
+  const targetId = run?.targetId ?? envelope.targetId;
   return {
     commandId: command.commandId,
     runId: command.runId,
     acceptedAt: command.acceptedAt,
     status: 'accepted',
-    ...(envelope.artifactType !== undefined ? { artifactType: envelope.artifactType } : {}),
-    ...(envelope.targetId !== undefined ? { targetId: envelope.targetId } : {}),
+    ...(artifactType !== undefined ? { artifactType } : {}),
+    ...(targetId !== undefined ? { targetId } : {}),
     nextExpectedState: run?.nextExpectedState ?? NEXT_EXPECTED_STATE_BY_INTENT[envelope.intent],
     sseChannel: `/runs/${command.runId}/stream`,
   };

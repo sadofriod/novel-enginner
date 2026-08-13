@@ -135,3 +135,36 @@ export async function persistCapabilitySnapshots(
     }),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Synthetic commits
+// ---------------------------------------------------------------------------
+
+export interface SyntheticCommitInput {
+  readonly syntheticCommitId: string;
+  readonly workspaceId: string;
+  readonly bookId: string;
+  readonly targetFilePaths: readonly string[];
+  readonly canonicalVersion: string;
+  readonly message: string;
+}
+
+/**
+ * Persists a synthetic commit audit record generated during a `re-sync-state` pass,
+ * per docs/architecture/modules/07-api-events-and-runtime.md §7.9:
+ * "手工改动经 re-sync-state 进入系统时，也要生成一条合成 commit 审计记录".
+ */
+export async function persistSyntheticCommit(input: SyntheticCommitInput): Promise<void> {
+  await prisma.syntheticCommit.upsert({
+    where: { syntheticCommitId: input.syntheticCommitId },
+    create: {
+      syntheticCommitId: input.syntheticCommitId,
+      workspaceId: input.workspaceId,
+      bookId: input.bookId,
+      targetFilePaths: input.targetFilePaths,
+      canonicalVersion: input.canonicalVersion,
+      message: input.message,
+    },
+    update: {},
+  });
+}

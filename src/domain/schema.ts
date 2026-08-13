@@ -5,17 +5,23 @@ import {
   BELIEF_STATE_VALUES,
   BOOK_STATUS_VALUES,
   CANONICAL_ARTIFACT_STATUS_VALUES,
+  CAPABILITY_REGISTRATION_STATUS_VALUES,
   CHAPTER_TYPE_VALUES,
   COMMAND_INTENT_VALUES,
   EMOTION_CURVE_STAGE_TYPE_VALUES,
   ENTITY_STATUS_VALUES,
+  MANUAL_RISK_VALUES,
   PLOT_CLUE_STATUS_VALUES,
+  PLANNING_ANCHOR_KIND_VALUES,
+  PLANNING_ANCHOR_STATUS_VALUES,
   PROPOSAL_ARTIFACT_TYPE_VALUES,
   PROPOSAL_STATUS_VALUES,
+  REVIEW_FRESHNESS_VALUES,
   REVIEW_HARD_FAILURE_VALUES,
   SYSTEM_TASK_TYPE_VALUES,
   TARGET_READER_EFFECT_VALUES,
   VOLUME_STATUS_VALUES,
+  WORKSPACE_VALIDITY_VALUES,
 } from './values';
 
 const StableIdSchema = z
@@ -101,12 +107,26 @@ export const CharacterSchema = z
     baselinePersonality: NonEmptyStringSchema.optional(),
     hardConstraints: z.array(NonEmptyStringSchema).readonly().optional(),
     knownFacts: z.array(BeliefRecordSchema).readonly().optional(),
+    knowledgeLedger: z.array(BeliefRecordSchema).readonly().optional(),
     knownFactIds: z.array(StableIdSchema).readonly().optional(),
     relationshipIds: z.array(StableIdSchema).readonly().optional(),
     resourceIds: z.array(StableIdSchema).readonly().optional(),
     goalState: NonEmptyStringSchema.optional(),
     injuryState: NonEmptyStringSchema.optional(),
     techLevel: NonEmptyStringSchema,
+  })
+  .readonly();
+
+export const PlanningAnchorSchema = z
+  .object({
+    id: StableIdSchema,
+    kind: z.enum(PLANNING_ANCHOR_KIND_VALUES),
+    title: NonEmptyStringSchema,
+    status: z.enum(PLANNING_ANCHOR_STATUS_VALUES),
+    ownerRef: StableIdSchema,
+    summary: NonEmptyStringSchema,
+    relatedClueIds: z.array(StableIdSchema).readonly(),
+    targetChapterIds: z.array(StableIdSchema).readonly(),
   })
   .readonly();
 
@@ -234,6 +254,7 @@ export const ChapterOutlineSchema = z
     chapterType: z.enum(CHAPTER_TYPE_VALUES),
     chapterTypeTags: z.array(z.enum(CHAPTER_TYPE_VALUES)).max(2).readonly(),
     status: z.enum(CANONICAL_ARTIFACT_STATUS_VALUES),
+    displayTitle: NonEmptyStringSchema.optional(),
     targetWordCount: PositiveIntegerSchema,
     activeClueIds: z.array(StableIdSchema).readonly().optional(),
     resolveClueIds: z.array(StableIdSchema).readonly().optional(),
@@ -251,6 +272,7 @@ export const ChapterManuscriptSchema = z
     volumeId: StableIdSchema,
     basedOnOutlineId: StableIdSchema,
     status: z.enum(CANONICAL_ARTIFACT_STATUS_VALUES),
+    displayTitle: NonEmptyStringSchema.optional(),
     basedOnCanonicalVersion: StableIdSchema,
     sceneAnchorIds: z.array(StableIdSchema).min(1).readonly(),
   })
@@ -336,6 +358,39 @@ export const OverrideAuditSchema = z
   })
   .readonly();
 
+export const ReviewFreshnessStateSchema = z
+  .object({
+    status: z.enum(REVIEW_FRESHNESS_VALUES),
+    lastReviewedAt: NonEmptyStringSchema.optional(),
+    sourceArtifactId: StableIdSchema.optional(),
+  })
+  .readonly();
+
+export const ManualRiskStateSchema = z
+  .object({
+    level: z.enum(MANUAL_RISK_VALUES),
+    reason: NonEmptyStringSchema.optional(),
+    artifactId: StableIdSchema.optional(),
+  })
+  .readonly();
+
+export const WorkspaceValidityStateSchema = z
+  .object({
+    state: z.enum(WORKSPACE_VALIDITY_VALUES),
+    reason: NonEmptyStringSchema.optional(),
+    lastKnownGoodSnapshot: StableIdSchema.optional(),
+  })
+  .readonly();
+
+export const CapabilityRegistrationStateSchema = z
+  .object({
+    status: z.enum(CAPABILITY_REGISTRATION_STATUS_VALUES),
+    capabilityId: StableIdSchema.optional(),
+    source: NonEmptyStringSchema.optional(),
+    details: NonEmptyStringSchema.optional(),
+  })
+  .readonly();
+
 export type StableId = z.infer<typeof StableIdSchema>;
 export type EntityVersionRef = z.infer<typeof EntityVersionRefSchema>;
 export type DefaultChapterTypePolicy = z.infer<typeof DefaultChapterTypePolicySchema>;
@@ -344,6 +399,7 @@ export type BeliefRecord = z.infer<typeof BeliefRecordSchema>;
 export type Book = z.infer<typeof BookSchema>;
 export type Volume = z.infer<typeof VolumeSchema>;
 export type Character = z.infer<typeof CharacterSchema>;
+export type PlanningAnchor = z.infer<typeof PlanningAnchorSchema>;
 export type Relationship = z.infer<typeof RelationshipSchema>;
 export type Resource = z.infer<typeof ResourceSchema>;
 export type Faction = z.infer<typeof FactionSchema>;
@@ -363,3 +419,7 @@ export type ReviewHardFailure = z.infer<typeof ReviewHardFailureSchema>;
 export type DimensionScores = z.infer<typeof DimensionScoresSchema>;
 export type ReviewerResult = z.infer<typeof ReviewerResultSchema>;
 export type OverrideAudit = z.infer<typeof OverrideAuditSchema>;
+export type ReviewFreshnessState = z.infer<typeof ReviewFreshnessStateSchema>;
+export type ManualRiskState = z.infer<typeof ManualRiskStateSchema>;
+export type WorkspaceValidityState = z.infer<typeof WorkspaceValidityStateSchema>;
+export type CapabilityRegistrationState = z.infer<typeof CapabilityRegistrationStateSchema>;

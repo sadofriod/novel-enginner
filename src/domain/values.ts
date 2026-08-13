@@ -37,11 +37,38 @@ export const PROPOSAL_STATUS_VALUES = [
   'approved',
   'rejected',
   'override-approved',
+  'superseded',
+  'commit-blocked',
+  'waiting-sync',
   'exported',
   'deleted',
 ] as const;
 
 export type ProposalStatus = (typeof PROPOSAL_STATUS_VALUES)[number];
+
+export const PLANNING_ANCHOR_KIND_VALUES = ['promise', 'constraint', 'milestone'] as const;
+
+export type PlanningAnchorKind = (typeof PLANNING_ANCHOR_KIND_VALUES)[number];
+
+export const PLANNING_ANCHOR_STATUS_VALUES = ['active', 'satisfied', 'superseded', 'archived'] as const;
+
+export type PlanningAnchorStatus = (typeof PLANNING_ANCHOR_STATUS_VALUES)[number];
+
+export const REVIEW_FRESHNESS_VALUES = ['fresh', 'stale'] as const;
+
+export type ReviewFreshness = (typeof REVIEW_FRESHNESS_VALUES)[number];
+
+export const MANUAL_RISK_VALUES = ['none', 'low', 'medium', 'high'] as const;
+
+export type ManualRisk = (typeof MANUAL_RISK_VALUES)[number];
+
+export const WORKSPACE_VALIDITY_VALUES = ['clean', 'dirty', 'invalid'] as const;
+
+export type WorkspaceValidity = (typeof WORKSPACE_VALIDITY_VALUES)[number];
+
+export const CAPABILITY_REGISTRATION_STATUS_VALUES = ['registered', 'discovered-unregistered', 'missing-source'] as const;
+
+export type CapabilityRegistrationStatus = (typeof CAPABILITY_REGISTRATION_STATUS_VALUES)[number];
 
 export const PROPOSAL_ARTIFACT_TYPE_VALUES = [
   'world-change',

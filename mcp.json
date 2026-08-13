@@ -1,0 +1,41 @@
+{
+  "servers": {
+    "cloakbrowser": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "cloakbrowser-mcp@1.10.0"
+      ],
+      "env": {
+        "NPM_CONFIG_CACHE": ".npm-cache"
+      }
+    },
+    "github": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "-e",
+        "GITHUB_TOOLSETS",
+        "-e",
+        "GITHUB_READ_ONLY",
+        "ghcr.io/github/github-mcp-server"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_PERSONAL_ACCESS_TOKEN}",
+        "GITHUB_TOOLSETS": "repos,issues,pull_requests",
+        "GITHUB_READ_ONLY": "1"
+      }
+    },
+    "obsidian": {
+      "type": "sse",
+      "url": "http://localhost:3001/sse",
+      "exposeToModel": false
+    }
+  }
+}

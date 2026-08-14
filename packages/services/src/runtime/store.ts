@@ -44,6 +44,12 @@ export interface CommandRecord {
   readonly acceptedAt: string;
 }
 
+export interface CanonicalDraft {
+  readonly proposalId: StableId;
+  readonly relativePath: string;
+  readonly content: string;
+}
+
 /**
  * Process-local storage for commands/runs/artifacts. This backs the minimal HTTP/SSE
  * control surface described in docs/architecture/modules/07-api-events-and-runtime.md
@@ -61,6 +67,7 @@ export class RuntimeStore {
   >();
   private readonly syncSessionByWorkspaceId = new Map<string, WorkspaceSyncSession>();
   private readonly workspaceValidityById = new Map<string, import('../domain/values').WorkspaceValidity>();
+  private readonly canonicalDraftByProposalId = new Map<string, CanonicalDraft>();
   private readonly bootstrapSessionsById = new Map<string, BootstrapSession>();
   private readonly bootstrapRevisionsById = new Map<string, BootstrapRevision>();
   private readonly bootstrapEvidenceById = new Map<string, BootstrapEvidence>();
@@ -107,6 +114,14 @@ export class RuntimeStore {
 
   deleteArtifact(artifactType: string, targetId: string): void {
     this.artifactsByKey.delete(artifactKey(artifactType, targetId));
+  }
+
+  saveCanonicalDraft(draft: CanonicalDraft): void {
+    this.canonicalDraftByProposalId.set(draft.proposalId, draft);
+  }
+
+  getCanonicalDraft(proposalId: string): CanonicalDraft | undefined {
+    return this.canonicalDraftByProposalId.get(proposalId);
   }
 
   /** Lists every known artifact summary, for the Web console's approval queue. */

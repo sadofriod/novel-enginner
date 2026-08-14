@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { createApiServer } from './api-server';
 import { RunEventBus } from './event-bus';
+import { RuntimeStore } from './store';
+import { reSyncState } from '../workspace/sync-engine';
 
 const BASE_ENVELOPE = {
   workspaceId: 'workspace-cybernovel-001',
@@ -109,6 +114,89 @@ describe('command envelope validation', () => {
 
     expect(response.status).toBe(202);
     expect(dispatched).toEqual(['chapter-outline:chapter-0042-outline']);
+  });
+
+  test('commits an approved proposal draft to the canonical workspace', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-enginner-'));
+    const store = new RuntimeStore();
+    const snapshot = reSyncState([]).snapshot;
+    const proposal = {
+      proposalId: 'proposal-chapter-0042-001',
+      artifactType: 'chapter-outline' as const,
+      targetId: 'chapter-0042-outline',
+      status: 'pending-approval' as const,
+      intent: 'propose' as const,
+      basedOnCanonicalVersion: snapshot.snapshotId,
+      parentRunId: 'run-proposal-001',
+    };
+    const content = '---\nid: chapter-0042-outline\n---\n\n# Chapter Outline\n';
+    store.setLastKnownSnapshot(BASE_ENVELOPE.workspaceId, snapshot);
+    store.saveCanonicalDraft({
+      proposalId: proposal.proposalId,
+      relativePath: 'state/chapters/chapter-0042-outline.md',
+      content,
+    });
+    const { fetch } = createApiServer({
+      store,
+      workspaceRoot,
+      loadActiveProposal: async () => proposal,
+    });
+
+    try {
+      const response = await postJson(fetch, '/commands', {
+        ...BASE_ENVELOPE,
+        intent: 'approve',
+        idempotencyKey: 'cmd-commit-canonical-001',
+      });
+
+      expect(response.status).toBe(202);
+      expect(await readFile(join(workspaceRoot, 'state/chapters/chapter-0042-outline.md'), 'utf8')).toBe(content);
+      expect(store.getArtifact('chapter-outline', 'chapter-0042-outline')?.proposalStatus).toBe('approved');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps an approval retryable when its canonical draft is unavailable', async () => {
+    const store = new RuntimeStore();
+    const snapshot = reSyncState([]).snapshot;
+    const proposal = {
+      proposalId: 'proposal-chapter-0042-missing-draft',
+      artifactType: 'chapter-outline' as const,
+      targetId: 'chapter-0042-outline',
+      status: 'pending-approval' as const,
+      intent: 'propose' as const,
+      basedOnCanonicalVersion: snapshot.snapshotId,
+      parentRunId: 'run-proposal-missing-draft',
+    };
+    store.setLastKnownSnapshot(BASE_ENVELOPE.workspaceId, snapshot);
+    const eventBus = new RunEventBus();
+    const persistedStatuses: string[] = [];
+    const { fetch } = createApiServer({
+      store,
+      eventBus,
+      loadActiveProposal: async () => proposal,
+      persistProposalDecision: async (_workspaceId, _bookId, persistedProposal) => {
+        persistedStatuses.push(persistedProposal.status);
+      },
+    });
+
+    const response = await postJson(fetch, '/commands', {
+      ...BASE_ENVELOPE,
+      intent: 'approve',
+      idempotencyKey: 'cmd-commit-canonical-missing-draft',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(store.getArtifact('chapter-outline', 'chapter-0042-outline')).toMatchObject({
+      proposalStatus: 'approved',
+      canonicalStatus: 'draft',
+    });
+    expect(persistedStatuses).toEqual(['approved']);
+    expect(eventBus.history(body.runId).at(-1)?.data).toEqual({
+      reason: 'canonical draft not found for proposal proposal-chapter-0042-missing-draft',
+    });
   });
 });
 

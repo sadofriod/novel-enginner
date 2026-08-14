@@ -1,6 +1,6 @@
 /* eslint-disable complexity, max-lines-per-function */
 
-import type { CommandEnvelope } from '../domain';
+import type { CommandEnvelope, Proposal } from '../domain';
 import type { WorkspaceValidity } from '../domain/values';
 
 import { abortDriftedRuns, type RunSnapshotRef } from '../workflow/run-drift';
@@ -21,6 +21,7 @@ import type { CommandRecord, RunRecord } from './store';
 import { applyProposalCommand } from '../workflow/command-lifecycle';
 import { buildDerivedGraph } from '../graph/derive';
 import { handleHandEditedArtifact } from '../agent/synthetic-review';
+import { commitCanonicalFile } from '../workspace/canonical-commit';
 import { resolveLayoutRuleForPath } from '../workspace/layout';
 import { RunEventBus } from './event-bus';
 import { listRegisteredRoutes } from './routes';
@@ -46,6 +47,7 @@ const TERMINAL_RUN_EVENT_TYPES: ReadonlySet<string> = new Set(['run.completed', 
 export interface CreateApiServerOptions {
   readonly store?: RuntimeStore;
   readonly eventBus?: RunEventBus;
+  readonly workspaceRoot?: string;
   readonly getWorkspaceValidity?: (workspaceId: string) => WorkspaceValidity;
   readonly persistAcceptedCommand?: (
     envelope: import('../domain').CommandEnvelope,
@@ -56,6 +58,16 @@ export interface CreateApiServerOptions {
     workspaceId: string,
     idempotencyKey: string,
   ) => Promise<{ readonly command: CommandRecord; readonly run?: RunRecord } | undefined>;
+  readonly loadActiveProposal?: (
+    workspaceId: string,
+    artifactType: Proposal['artifactType'],
+    targetId: string,
+  ) => Promise<Proposal | undefined>;
+  readonly persistProposalDecision?: (
+    workspaceId: string,
+    bookId: string,
+    proposal: Proposal,
+  ) => Promise<void>;
   readonly onRebuildGraph?: (
     workspaceId: string,
     bookId: string,
@@ -228,6 +240,7 @@ async function finalizeAcceptedCommand(
   persistAcceptedCommand: ((envelope: CommandEnvelope, command: CommandRecord, run: RunRecord) => Promise<void>) | undefined,
   commandWasKnown: boolean,
   dispatchCommand: ((envelope: CommandEnvelope, run: RunRecord, canonicalVersion?: string) => Promise<void>) | undefined,
+  options: CreateApiServerOptions,
 ): Promise<void> {
   if (!('ok' in validation) || result.status !== 'accepted') {
     return;
@@ -247,6 +260,7 @@ async function finalizeAcceptedCommand(
     envelope: validation.envelope,
     runId: result.runId,
     getWorkspaceValidity,
+    options,
   });
 
   if (!commandWasKnown && run !== undefined && dispatchCommand !== undefined) {
@@ -502,12 +516,14 @@ async function applyPersistedProposalDecision({
   envelope,
   runId,
   getWorkspaceValidity,
+  options,
 }: {
   store: RuntimeStore;
   eventBus: RunEventBus;
   envelope: CommandEnvelope;
   runId: string;
   getWorkspaceValidity: (workspaceId: string) => WorkspaceValidity;
+  options: CreateApiServerOptions;
 }): Promise<void> {
   const decisionIntents = new Set(['approve', 'reject', 'override-approve', 'export-draft']);
   if (!decisionIntents.has(envelope.intent) || envelope.artifactType === undefined || envelope.targetId === undefined) {
@@ -515,9 +531,11 @@ async function applyPersistedProposalDecision({
   }
 
   const persistenceEnabled = process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test';
-  const proposal = !persistenceEnabled
+  const loadActiveProposal = options.loadActiveProposal
+    ?? (persistenceEnabled ? findActiveProposalForTarget : undefined);
+  const proposal = loadActiveProposal === undefined
     ? undefined
-    : await findActiveProposalForTarget(envelope.workspaceId, envelope.artifactType, envelope.targetId);
+    : await loadActiveProposal(envelope.workspaceId, envelope.artifactType, envelope.targetId);
   const snapshot = store.getLastKnownSnapshot(envelope.workspaceId);
   if (proposal === undefined || snapshot === undefined) {
     eventBus.publish({
@@ -529,11 +547,12 @@ async function applyPersistedProposalDecision({
     return;
   }
 
+  const workspaceValidity = getWorkspaceValidity(envelope.workspaceId);
   const decision = applyProposalCommand({
     envelope,
     proposal,
     currentCanonicalVersion: snapshot.snapshotId,
-    workspaceValidity: getWorkspaceValidity(envelope.workspaceId),
+    workspaceValidity,
   });
   if (!decision.accepted) {
     eventBus.publish({
@@ -545,9 +564,31 @@ async function applyPersistedProposalDecision({
     return;
   }
 
-  if (persistenceEnabled) {
+  if (options.persistProposalDecision !== undefined) {
+    await options.persistProposalDecision(envelope.workspaceId, envelope.bookId, decision.proposal);
+  } else if (persistenceEnabled) {
     const { persistProposal } = await import('../persistence/operations');
     await persistProposal(envelope.workspaceId, envelope.bookId, decision.proposal);
+  }
+
+  if (decision.canCommit) {
+    const commitFailure = await commitApprovedProposalDraft({
+      store,
+      workspaceRoot: options.workspaceRoot ?? process.cwd(),
+      proposal: decision.proposal,
+      currentSnapshotId: snapshot.snapshotId,
+      workspaceValidity,
+    });
+    if (commitFailure !== undefined) {
+      updateArtifactDecisionStatus(store, envelope, decision.proposal.status);
+      eventBus.publish({
+        type: 'run.step.failed',
+        runId,
+        emittedAt: new Date().toISOString(),
+        data: { reason: commitFailure },
+      });
+      return;
+    }
   }
   updateArtifactDecisionStatus(store, envelope, decision.proposal.status);
   eventBus.publish({
@@ -556,6 +597,29 @@ async function applyPersistedProposalDecision({
     emittedAt: new Date().toISOString(),
     data: { proposalId: decision.proposal.proposalId, status: decision.proposal.status },
   });
+}
+
+async function commitApprovedProposalDraft(input: {
+  readonly store: RuntimeStore;
+  readonly workspaceRoot: string;
+  readonly proposal: Proposal;
+  readonly currentSnapshotId: string;
+  readonly workspaceValidity: WorkspaceValidity;
+}): Promise<string | undefined> {
+  const draft = input.store.getCanonicalDraft(input.proposal.proposalId);
+  if (draft === undefined) {
+    return `canonical draft not found for proposal ${input.proposal.proposalId}`;
+  }
+
+  const result = await commitCanonicalFile({
+    workspaceRoot: input.workspaceRoot,
+    relativePath: draft.relativePath,
+    content: draft.content,
+    workspaceValidity: input.workspaceValidity,
+    proposalSnapshotId: input.proposal.basedOnCanonicalVersion,
+    currentSnapshotId: input.currentSnapshotId,
+  });
+  return result.committed ? undefined : result.reason;
 }
 
 function updateArtifactDecisionStatus(store: RuntimeStore, envelope: CommandEnvelope, proposalStatus: string): void {
@@ -568,6 +632,7 @@ function updateArtifactDecisionStatus(store: RuntimeStore, envelope: CommandEnve
   }
   store.upsertArtifact({
     ...existing,
+    canonicalStatus: existing.canonicalStatus ?? 'draft',
     proposalStatus,
     updatedAt: new Date().toISOString(),
   });
@@ -602,6 +667,7 @@ function syncArtifactSummary(
     ...existing,
     artifactType: envelope.artifactType,
     targetId: envelope.targetId,
+    canonicalStatus: existing?.canonicalStatus ?? 'draft',
     proposalStatus: resolveProposalStatus(envelope.intent, getWorkspaceValidity(envelope.workspaceId)),
     updatedAt: result.acceptedAt,
   });
@@ -739,6 +805,7 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
         persistAcceptedCommand,
         commandWasKnown,
         dispatchCommand,
+        options,
       );
     }
     return jsonResponse(result, result.status === 'accepted' ? 202 : 400);

@@ -1,3 +1,5 @@
+import type { ArtifactFieldDiff, ArtifactEntityVersionRef } from '../../runtime/artifact-detail';
+
 /**
  * Proposal diff view (docs/architecture/modules/06-web-console-and-approval.md §6.8):
  * shows the "proposal vs canonical" diff in the artifact detail page. V1 displays a
@@ -5,23 +7,16 @@
  * structured JSON/Markdown objects rather than free text.
  */
 
-export interface FieldDiff {
-  readonly field: string;
-  readonly canonical?: unknown;
-  readonly proposed?: unknown;
-  readonly changed: boolean;
-}
-
 export interface ProposalDiffViewProps {
   readonly proposalId: string;
   readonly artifactType: string;
   readonly targetId: string;
   readonly basedOnCanonicalVersion: string;
-  readonly diffs: readonly FieldDiff[];
-  readonly entityVersionRefs?: ReadonlyArray<{ entityId: string; version: string }>;
+  readonly diffs: readonly ArtifactFieldDiff[];
+  readonly entityVersionRefs?: readonly ArtifactEntityVersionRef[] | undefined;
 }
 
-function DiffRow({ field, canonical, proposed, changed }: FieldDiff) {
+function DiffRow({ field, canonical, proposed, changed }: ArtifactFieldDiff) {
   return (
     <tr className={changed ? 'diff-row diff-changed' : 'diff-row diff-unchanged'}>
       <td className="diff-field">

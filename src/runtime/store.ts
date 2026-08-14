@@ -1,8 +1,9 @@
 import type { ProposalArtifactType, SystemTaskType } from '../domain/values';
 import type { StableId } from '../domain/schema';
 import { WorkspaceSyncSession } from '../workspace/session';
+import type { ArtifactDetailState } from './artifact-detail';
 
-export interface ArtifactSummary {
+export interface ArtifactSummary extends ArtifactDetailState {
   readonly artifactType: ProposalArtifactType;
   readonly targetId: StableId;
   readonly canonicalStatus?: string;
@@ -86,6 +87,10 @@ export class RuntimeStore {
 
   getArtifact(artifactType: string, targetId: string): ArtifactSummary | undefined {
     return this.artifactsByKey.get(artifactKey(artifactType, targetId));
+  }
+
+  deleteArtifact(artifactType: string, targetId: string): void {
+    this.artifactsByKey.delete(artifactKey(artifactType, targetId));
   }
 
   /** Lists every known artifact summary, for the Web console's approval queue. */

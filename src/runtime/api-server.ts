@@ -1,9 +1,10 @@
+import type { CommandEnvelope } from '../domain';
 import type { WorkspaceValidity } from '../domain/values';
 
 import { abortDriftedRuns, type RunSnapshotRef } from '../workflow/run-drift';
-import { WorkspaceSyncSession, type SyntheticCommit } from '../workspace/session';
+import { type SyntheticCommit } from '../workspace/session';
 import { type WorkspaceFileInput } from '../workspace/sync-engine';
-import { handleCommand, validateCommandEnvelope } from './command-handler';
+import { handleCommand, validateCommandEnvelope, type CommandResult } from './command-handler';
 import {
   findPersistedCommandByIdempotencyKey,
   findActiveProposalForTarget,
@@ -11,12 +12,16 @@ import {
   persistCommand,
   persistRun,
 } from '../persistence/operations';
-import type { CommandRecord, RunRecord } from './store';
-import { dispatchCommandToInngest } from '../workflow/inngest-client';
-import { dispatchSyntheticReviewToInngest } from '../workflow/inngest-client';
+import type { CommandRecord, RunRecord, ArtifactSummary } from './store';
 import { applyProposalCommand } from '../workflow/command-lifecycle';
 import { handleHandEditedArtifact } from '../agent/synthetic-review';
 import { resolveLayoutRuleForPath } from '../workspace/layout';
+import { renderControlConsolePage } from '../web/app/pages/ControlConsolePage';
+import { RunEventBus } from './event-bus';
+import { listRegisteredRoutes } from './routes';
+import { matchRoute } from './routes/match-route';
+import type { RouteApi } from './routes/types';
+import { RuntimeStore } from './store';
 
 const PROPOSAL_ARTIFACT_TYPE_BY_CANONICAL_KIND: Readonly<Record<string, string>> = {
   character: 'character-update',
@@ -27,8 +32,6 @@ const PROPOSAL_ARTIFACT_TYPE_BY_CANONICAL_KIND: Readonly<Record<string, string>>
   relationship: 'relationship-update',
   resource: 'resource-update',
 };
-import { RunEventBus } from './event-bus';
-import { RuntimeStore } from './store';
 
 export interface CreateApiServerOptions {
   readonly store?: RuntimeStore;
@@ -88,6 +91,20 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function htmlResponse(body: string, status = 200): Response {
+  return new Response(body, {
+    status,
+    headers: { 'content-type': 'text/html; charset=utf-8' },
+  });
+}
+
+function redirectResponse(location: string): Response {
+  return new Response(null, {
+    status: 303,
+    headers: { location },
+  });
+}
+
 /**
  * Builds the minimal local HTTP/SSE control surface from
  * docs/architecture/modules/07-api-events-and-runtime.md §7.5. Returns a `fetch`
@@ -100,7 +117,7 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
   const getWorkspaceValidity = options.getWorkspaceValidity ?? (() => 'clean' as WorkspaceValidity);
   const persistAcceptedCommand = options.persistAcceptedCommand
     ?? (process.env['DATABASE_URL'] !== undefined
-      ? async (envelope: import('../domain').CommandEnvelope, command: CommandRecord, run: RunRecord): Promise<void> => {
+      ? async (envelope: CommandEnvelope, command: CommandRecord, run: RunRecord): Promise<void> => {
           await persistCommand(envelope.workspaceId, envelope.bookId, command);
           await persistRun(run, envelope.intent, envelope.requestedBy, envelope.idempotencyKey);
         }
@@ -120,56 +137,122 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
       : undefined);
   const dispatchCommand = options.dispatchCommand
     ?? (process.env['INNGEST_EVENT_KEY'] !== undefined
-      ? async (envelope: import('../domain').CommandEnvelope, _run: RunRecord, canonicalVersion?: string): Promise<void> => {
+      ? async (envelope: CommandEnvelope, _run: RunRecord, canonicalVersion?: string): Promise<void> => {
+          const { dispatchCommandToInngest } = await import('../workflow/inngest-client');
           await dispatchCommandToInngest(envelope, canonicalVersion);
         }
       : undefined);
   const dispatchSyntheticReview = options.dispatchSyntheticReview
-    ?? (process.env['INNGEST_EVENT_KEY'] !== undefined ? dispatchSyntheticReviewToInngest : undefined);
+    ?? (process.env['INNGEST_EVENT_KEY'] !== undefined
+      ? async (input: {
+          readonly workspaceId: string;
+          readonly bookId: string;
+          readonly artifactType: string;
+          readonly targetId: string;
+          readonly editedFilePath: string;
+          readonly editedText?: string;
+          readonly proposalId?: string;
+        }): Promise<void> => {
+          const { dispatchSyntheticReviewToInngest } = await import('../workflow/inngest-client');
+          await dispatchSyntheticReviewToInngest(input);
+        }
+      : undefined);
   const reSyncStateOptions = options.reSyncStateOptions;
+  const routes = listRegisteredRoutes();
+
+  const api: RouteApi = {
+    handleRoot,
+    handleApp,
+    handleWebCommandAction,
+    handlePostCommand,
+    handleGetCommand,
+    handleListRuns,
+    handleListArtifacts,
+    handleGetRun,
+    handleGetArtifact,
+    handleRunStream,
+    handleSyncCommand,
+  };
 
   async function fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const segments = url.pathname.split('/').filter((segment) => segment.length > 0);
+    const matched = matchRoute(routes, request.method.toUpperCase(), url.pathname);
+    if (matched === undefined) {
+      return jsonResponse({ status: 'rejected', code: 'not-found', message: 'Unknown route.' }, 404);
+    }
+    return matched.route.handle({ api, request, url, params: matched.params });
+  }
 
-    if (request.method === 'POST' && segments.length === 1 && segments[0] === 'commands') {
-      return handlePostCommand(request);
+  function handleRoot(): Response {
+    return redirectResponse('/app');
+  }
+
+  function handleApp(request: Request): Response {
+    const url = new URL(request.url);
+    const artifactType = url.searchParams.get('artifactType');
+    const targetId = url.searchParams.get('targetId');
+    const artifacts = store.listArtifacts();
+    const runs = store.listRuns();
+    const selectedArtifact = artifactType === null || targetId === null
+      ? artifacts[0]
+      : artifacts.find((artifact) => artifact.artifactType === artifactType && artifact.targetId === targetId);
+    const workspaceId = url.searchParams.get('workspaceId') ?? runs[0]?.workspaceId ?? 'workspace-local';
+    const bookId = url.searchParams.get('bookId') ?? runs[0]?.bookId ?? 'book-local';
+    return htmlResponse(renderControlConsolePage({ artifacts, runs, selectedArtifact, workspaceId, bookId }));
+  }
+
+  async function handleWebCommandAction(request: Request): Promise<Response> {
+    const form = await request.formData();
+    const artifactType = readFormValue(form, 'artifactType');
+    const targetId = readFormValue(form, 'targetId');
+    const intent = readFormValue(form, 'intent');
+    const redirectTo = readFormValue(form, 'redirectTo') ?? '/app';
+    if (artifactType === undefined || targetId === undefined || intent === undefined) {
+      return redirectResponse(redirectTo);
     }
 
-    if (request.method === 'GET' && segments.length === 2 && segments[0] === 'commands') {
-      return handleGetCommand(segments[1] as string);
+    if (intent === 'delete') {
+      store.deleteArtifact(artifactType, targetId);
+      return redirectResponse('/app');
     }
 
-    if (request.method === 'GET' && segments.length === 1 && segments[0] === 'runs') {
-      return jsonResponse(store.listRuns());
+    const workspaceId = readFormValue(form, 'workspaceId') ?? 'workspace-local';
+    const bookId = readFormValue(form, 'bookId') ?? 'book-local';
+    const note = readFormValue(form, 'note');
+    if (note !== undefined && note.trim().length > 0) {
+      applyInlineEditNote(artifactType, targetId, note.trim());
     }
 
-    if (request.method === 'GET' && segments.length === 1 && segments[0] === 'artifacts') {
-      return jsonResponse(store.listArtifacts());
-    }
+    await handlePostCommand(
+      new Request('http://local.test/commands', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId,
+          bookId,
+          artifactType,
+          targetId,
+          intent,
+          requestedBy: 'author-local',
+          approvalMode: 'manual',
+          idempotencyKey: `web-${intent}-${targetId}-${Date.now().toString(36)}`,
+        }),
+      }),
+    );
+    return redirectResponse(redirectTo);
+  }
 
-    if (request.method === 'GET' && segments.length === 2 && segments[0] === 'runs') {
-      return handleGetRun(segments[1] as string);
+  function applyInlineEditNote(artifactType: string, targetId: string, inlineEditNote: string): void {
+    const artifact = store.getArtifact(artifactType, targetId);
+    if (artifact === undefined) {
+      return;
     }
-
-    if (
-      request.method === 'GET'
-      && segments.length === 3
-      && segments[0] === 'runs'
-      && segments[2] === 'stream'
-    ) {
-      return handleRunStream(segments[1] as string, request);
-    }
-
-    if (request.method === 'GET' && segments.length === 3 && segments[0] === 'artifacts') {
-      return handleGetArtifact(segments[1] as string, segments[2] as string);
-    }
-
-    if (request.method === 'POST' && segments.length === 2 && segments[0] === 'sync') {
-      return handleSyncCommand(segments[1] as string, request);
-    }
-
-    return jsonResponse({ status: 'rejected', code: 'not-found', message: 'Unknown route.' }, 404);
+    store.upsertArtifact({
+      ...artifact,
+      inlineEditNote,
+      reviewStale: true,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   async function handlePostCommand(request: Request): Promise<Response> {
@@ -205,6 +288,7 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
         if (command !== undefined && run !== undefined && persistAcceptedCommand !== undefined) {
           await persistAcceptedCommand(acceptedValidation.envelope, command, run);
         }
+        syncArtifactSummary(acceptedValidation.envelope, result);
         await applyPersistedProposalDecision(acceptedValidation.envelope, result.runId);
         if (!commandWasKnown && run !== undefined && dispatchCommand !== undefined) {
           const canonicalVersion = store.getLastKnownSnapshot(acceptedValidation.envelope.workspaceId)?.snapshotId;
@@ -216,7 +300,7 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
   }
 
   async function applyPersistedProposalDecision(
-    envelope: import('../domain').CommandEnvelope,
+    envelope: CommandEnvelope,
     runId: string,
   ): Promise<void> {
     const decisionIntents = new Set(['approve', 'reject', 'override-approve', 'export-draft']);
@@ -262,6 +346,7 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
       const { persistProposal } = await import('../persistence/operations');
       await persistProposal(envelope.workspaceId, envelope.bookId, decision.proposal);
     }
+    updateArtifactDecisionStatus(envelope, decision.proposal.status);
     eventBus.publish({
       type: decision.canCommit ? 'artifact.canonical-committed' : 'artifact.approved',
       runId,
@@ -276,6 +361,14 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
       return jsonResponse({ status: 'rejected', code: 'not-found', message: 'Unknown command.' }, 404);
     }
     return jsonResponse(command);
+  }
+
+  function handleListRuns(): Response {
+    return jsonResponse(store.listRuns());
+  }
+
+  function handleListArtifacts(): Response {
+    return jsonResponse(store.listArtifacts());
   }
 
   function handleGetRun(runId: string): Response {
@@ -323,6 +416,48 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
         'cache-control': 'no-cache',
         connection: 'keep-alive',
       },
+    });
+  }
+
+  function syncArtifactSummary(envelope: CommandEnvelope, result: CommandResult): void {
+    if (result.status !== 'accepted' || envelope.artifactType === undefined || envelope.targetId === undefined) {
+      return;
+    }
+    const existing = store.getArtifact(envelope.artifactType, envelope.targetId);
+    if (envelope.intent === 'propose' || envelope.intent === 'regenerate') {
+      store.upsertArtifact({
+        ...existing,
+        artifactType: envelope.artifactType,
+        targetId: envelope.targetId,
+        canonicalStatus: existing?.canonicalStatus ?? 'draft',
+        activeProposalId: existing?.activeProposalId ?? `proposal-${result.runId}`,
+        proposalStatus: 'pending-approval',
+        updatedAt: result.acceptedAt,
+      });
+      return;
+    }
+
+    store.upsertArtifact({
+      ...existing,
+      artifactType: envelope.artifactType,
+      targetId: envelope.targetId,
+      proposalStatus: resolveProposalStatus(envelope.intent, getWorkspaceValidity(envelope.workspaceId)),
+      updatedAt: result.acceptedAt,
+    });
+  }
+
+  function updateArtifactDecisionStatus(envelope: CommandEnvelope, proposalStatus: string): void {
+    if (envelope.artifactType === undefined || envelope.targetId === undefined) {
+      return;
+    }
+    const existing = store.getArtifact(envelope.artifactType, envelope.targetId);
+    if (existing === undefined) {
+      return;
+    }
+    store.upsertArtifact({
+      ...existing,
+      proposalStatus,
+      updatedAt: new Date().toISOString(),
     });
   }
 
@@ -452,6 +587,35 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
   }
 
   return { fetch, store, eventBus };
+}
+
+function readFormValue(form: FormData, key: string): string | undefined {
+  const value = form.get(key);
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function resolveProposalStatus(intent: CommandEnvelope['intent'], workspaceValidity: WorkspaceValidity): string {
+  if (intent === 'approve') {
+    return workspaceValidity === 'dirty'
+      ? 'waiting-sync'
+      : workspaceValidity === 'invalid'
+        ? 'commit-blocked'
+        : 'approved';
+  }
+  if (intent === 'override-approve') {
+    return workspaceValidity === 'dirty'
+      ? 'waiting-sync'
+      : workspaceValidity === 'invalid'
+        ? 'commit-blocked'
+        : 'override-approved';
+  }
+  if (intent === 'reject') {
+    return 'rejected';
+  }
+  if (intent === 'export-draft') {
+    return 'exported';
+  }
+  return 'pending-approval';
 }
 
 function formatSseEvent(event: { readonly type: string; readonly emittedAt: string; readonly data?: Record<string, unknown> }): string {

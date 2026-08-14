@@ -16,6 +16,9 @@ yarn-debug.log*
 yarn-error.log*
 .npm-cache/
 .playwright-mcp/
+.playwright/
+playwright-report/
+test-results/
 
 # Environment
 .env

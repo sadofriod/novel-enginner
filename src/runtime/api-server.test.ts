@@ -113,6 +113,75 @@ describe('command envelope validation', () => {
 });
 
 describe('run / artifact lookup', () => {
+  test('GET /app renders the web control console with the documented detail panels', async () => {
+    const { fetch, store } = createApiServer();
+    store.upsertArtifact({
+      artifactType: 'chapter-outline',
+      targetId: 'chapter-0042-outline',
+      canonicalStatus: 'clean',
+      activeProposalId: 'proposal-chapter-0042-002',
+      proposalStatus: 'pending-approval',
+      proposalDetail: {
+        basedOnCanonicalVersion: 'snap-0001',
+        diffs: [
+          {
+            field: 'displayTitle',
+            canonical: '旧标题',
+            proposed: '新标题',
+            changed: true,
+          },
+        ],
+      },
+      bundledDiff: [
+        {
+          artifactType: 'character-update',
+          targetId: 'char-lin-mo',
+          changeKind: 'update',
+          summary: '更新角色状态',
+        },
+      ],
+      reviewerResult: {
+        approved: true,
+        totalScore: 92,
+        overrideEligible: false,
+        hardFailures: [],
+        dimensionScores: {
+          antiAiVoice: 92,
+          webFictionPacing: 90,
+          emotionCurve: 91,
+          characterConsistency: 94,
+          settingConsistency: 93,
+          clueCausality: 92,
+          readabilityLayout: 90,
+          languageTexture: 94,
+        },
+        rewriteDirectives: ['保持冲突推进'],
+      },
+      derivedGraph: {
+        status: 'ready',
+        latestCanonicalVersion: 'snap-0001',
+        graphSnapshotVersion: 'graph-snap-0001',
+        nodes: [
+          { id: 'chapter-0042-outline', label: '第 42 章', type: 'Chapter' },
+          { id: 'char-lin-mo', label: '林默', type: 'Character' },
+        ],
+        edges: [
+          { source: 'chapter-0042-outline', target: 'char-lin-mo', type: 'introduces' },
+        ],
+      },
+    });
+
+    const response = await fetch(new Request('http://local.test/app?artifactType=chapter-outline&targetId=chapter-0042-outline'));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    const html = await response.text();
+    expect(html).toContain('任务 / 审批队列');
+    expect(html).toContain('Proposal 差异视图');
+    expect(html).toContain('关联状态变更（原子提交）');
+    expect(html).toContain('Reviewer 结果');
+    expect(html).toContain('剧情图谱 / 派生状态');
+  });
+
   test('GET /runs/:runId returns the run snapshot after a command is accepted', async () => {
     const { fetch } = createApiServer();
     const accepted = await postJson(fetch, '/commands', { ...BASE_ENVELOPE, idempotencyKey: 'cmd-run-lookup-001' });
@@ -162,6 +231,39 @@ describe('run / artifact lookup', () => {
     const { fetch } = createApiServer();
     const response = await fetch(new Request('http://local.test/artifacts/chapter-outline/unknown'));
     expect(response.status).toBe(404);
+  });
+
+  test('POST /app/actions/command submits a web approval action and redirects back to the artifact page', async () => {
+    const { fetch, store } = createApiServer();
+    store.upsertArtifact({
+      artifactType: 'chapter-outline',
+      targetId: 'chapter-0042-outline',
+      canonicalStatus: 'draft',
+      activeProposalId: 'proposal-chapter-0042-002',
+      proposalStatus: 'pending-approval',
+    });
+
+    const body = new URLSearchParams({
+      workspaceId: 'workspace-cybernovel-001',
+      bookId: 'book-quantum-ascension',
+      artifactType: 'chapter-outline',
+      targetId: 'chapter-0042-outline',
+      intent: 'approve',
+      note: '修正一个短标题',
+      redirectTo: '/app?artifactType=chapter-outline&targetId=chapter-0042-outline',
+    });
+    const response = await fetch(new Request('http://local.test/app/actions/command', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    }));
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get('location')).toBe('/app?artifactType=chapter-outline&targetId=chapter-0042-outline');
+    const artifact = store.getArtifact('chapter-outline', 'chapter-0042-outline');
+    expect(artifact?.proposalStatus).toBe('approved');
+    expect(artifact?.reviewStale).toBe(true);
+    expect(artifact?.inlineEditNote).toBe('修正一个短标题');
   });
 });
 

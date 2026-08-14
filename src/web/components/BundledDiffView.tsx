@@ -1,3 +1,5 @@
+import type { ArtifactBundledDiffEntry } from '../../runtime/artifact-detail';
+
 /**
  * Bundled diff view: shows the character/fact/relationship/resource state diffs that
  * accompany a `chapter-manuscript` proposal (§6.3 and §4.2 §4 canonical commit rule):
@@ -11,26 +13,18 @@
  * will be atomically committed before approving the manuscript.
  */
 
-export interface BundledDiffEntry {
-  readonly artifactType: string;
-  readonly targetId: string;
-  readonly changeKind: 'create' | 'update' | 'delete';
-  readonly summary: string;
-  readonly fields?: ReadonlyArray<{ field: string; before?: unknown; after?: unknown }>;
-}
-
 export interface BundledDiffViewProps {
   readonly proposalId: string;
-  readonly entries: readonly BundledDiffEntry[];
+  readonly entries: readonly ArtifactBundledDiffEntry[];
 }
 
-const CHANGE_KIND_LABEL: Record<BundledDiffEntry['changeKind'], string> = {
+const CHANGE_KIND_LABEL: Record<ArtifactBundledDiffEntry['changeKind'], string> = {
   create: '新增',
   update: '变更',
   delete: '删除',
 };
 
-function BundledDiffEntryRow({ entry }: { entry: BundledDiffEntry }) {
+function BundledDiffEntryRow({ entry }: { entry: ArtifactBundledDiffEntry }) {
   return (
     <li className={`bundled-diff-entry bundled-diff-${entry.changeKind}`}>
       <header className="bundled-entry-header">

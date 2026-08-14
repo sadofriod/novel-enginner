@@ -14,6 +14,10 @@ describe('registered runtime routes', () => {
     expect(routes).toContain('GET /artifacts');
     expect(routes).toContain('GET /artifacts/:artifactType/:targetId');
     expect(routes).toContain('GET /audits/override/:overrideAuditId');
+    expect(routes).toContain('GET /bootstrap-sessions');
+    expect(routes).toContain('GET /bootstrap-sessions/:sessionId');
+    expect(routes).toContain('GET /bootstrap-sessions/:sessionId/revisions');
+    expect(routes).toContain('GET /bootstrap-sessions/:sessionId/evidence');
     expect(routes).toContain('POST /sync/rebuild-graph');
     expect(routes).toContain('POST /sync/re-sync-state');
     expect(routes).toContain('GET /');

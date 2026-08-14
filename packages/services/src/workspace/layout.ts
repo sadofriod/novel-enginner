@@ -8,17 +8,23 @@ import {
   FactionSchema,
   FactSchema,
   LocationSchema,
+  ProjectBriefSchema,
   PlanningAnchorSchema,
   PlotClueSchema,
   CapabilityRegistrySchema,
   RelationshipSchema,
   ResourceSchema,
+  StoryBlueprintSchema,
   TechRuleSchema,
+  WorldFoundationSchema,
   VolumeSchema,
 } from '../domain/schema';
 
 export const CANONICAL_ENTITY_KIND_VALUES = [
   'book',
+  'project-brief',
+  'world-foundation',
+  'story-blueprint',
   'volume',
   'chapter-outline',
   'chapter-manuscript',
@@ -61,6 +67,24 @@ export const CANONICAL_LAYOUT_RULES: readonly CanonicalLayoutRule[] = [
     directory: 'state/book',
     filePattern: /^book\.md$/,
     schema: BookSchema,
+  },
+  {
+    kind: 'project-brief',
+    directory: 'state/book',
+    filePattern: /^project-brief\.md$/,
+    schema: ProjectBriefSchema,
+  },
+  {
+    kind: 'story-blueprint',
+    directory: 'state/book',
+    filePattern: /^story-blueprint\.md$/,
+    schema: StoryBlueprintSchema,
+  },
+  {
+    kind: 'world-foundation',
+    directory: 'state/world',
+    filePattern: /^world-foundation\.md$/,
+    schema: WorldFoundationSchema,
   },
   {
     kind: 'volume',

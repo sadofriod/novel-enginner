@@ -28,7 +28,17 @@ export interface CommandRejectedResponse {
 
 export type CommandResult = CommandAcceptedResponse | CommandRejectedResponse;
 
-const SYSTEM_TASK_INTENTS: ReadonlySet<CommandIntent> = new Set(['rebuild-graph', 're-sync-state']);
+const SYSTEM_TASK_INTENTS: ReadonlySet<CommandIntent> = new Set([
+  'rebuild-graph',
+  're-sync-state',
+  'create-bootstrap-session',
+  'continue-bootstrap-session',
+  'submit-dialogue-round',
+  'submit-market-research',
+  'scan-import-directory',
+  'confirm-import',
+  'discard-bootstrap-session',
+]);
 
 /**
  * Maps each `intent` to the `nextExpectedState` the caller should poll/watch for, per
@@ -44,6 +54,13 @@ const NEXT_EXPECTED_STATE_BY_INTENT: Record<CommandIntent, string> = {
   'export-draft': 'proposal-exported',
   'rebuild-graph': 'derived-ready',
   're-sync-state': 'workspace-synced',
+  'create-bootstrap-session': 'bootstrap-session-created',
+  'continue-bootstrap-session': 'bootstrap-session-resumed',
+  'submit-dialogue-round': 'bootstrap-draft-saved',
+  'submit-market-research': 'market-research-accepted',
+  'scan-import-directory': 'bootstrap-import-scanned',
+  'confirm-import': 'bootstrap-import-confirmed',
+  'discard-bootstrap-session': 'bootstrap-session-abandoned',
   'retry-step': 'run-resumed',
   'resume-run': 'run-resumed',
   'abort-run': 'run-aborted',

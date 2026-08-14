@@ -29,6 +29,9 @@ import type { RouteApi } from './routes/types';
 import { RuntimeStore } from './store';
 
 const PROPOSAL_ARTIFACT_TYPE_BY_CANONICAL_KIND: Readonly<Record<string, string>> = {
+  'project-brief': 'project-brief',
+  'world-foundation': 'world-foundation',
+  'story-blueprint': 'story-blueprint',
   character: 'character-update',
   faction: 'faction-update',
   location: 'location-update',
@@ -629,6 +632,10 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
     handleGetCommand,
     handleListRuns,
     handleListArtifacts,
+    handleListBootstrapSessions,
+    handleGetBootstrapSession,
+    handleGetBootstrapSessionRevisions,
+    handleGetBootstrapSessionEvidence,
     handleGetRun,
     handleGetArtifact,
     handleGetOverrideAudit,
@@ -751,6 +758,26 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
 
   function handleListArtifacts(): Response {
     return jsonResponse(store.listArtifacts());
+  }
+
+  function handleListBootstrapSessions(): Response {
+    return jsonResponse(store.listBootstrapSessions());
+  }
+
+  function handleGetBootstrapSession(sessionId: string): Response {
+    const session = store.getBootstrapSession(sessionId);
+    if (session === undefined) {
+      return jsonResponse({ status: 'rejected', code: 'not-found', message: `Unknown bootstrap session "${sessionId}".` }, 404);
+    }
+    return jsonResponse(session);
+  }
+
+  function handleGetBootstrapSessionRevisions(sessionId: string): Response {
+    return jsonResponse(store.listBootstrapRevisions(sessionId));
+  }
+
+  function handleGetBootstrapSessionEvidence(sessionId: string): Response {
+    return jsonResponse(store.listBootstrapEvidence(sessionId));
   }
 
   function handleGetRun(runId: string): Response {

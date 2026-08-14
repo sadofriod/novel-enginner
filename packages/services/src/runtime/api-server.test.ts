@@ -222,6 +222,17 @@ describe('run / artifact lookup', () => {
     expect(body.commandId).toBe(commandId);
   });
 
+  test('bootstrap session resource endpoints exist', async () => {
+    const { fetch } = createApiServer();
+
+    const listResponse = await fetch(new Request('http://local.test/bootstrap-sessions'));
+    expect(listResponse.status).toBe(200);
+    expect(await listResponse.json()).toEqual([]);
+
+    const detailResponse = await fetch(new Request('http://local.test/bootstrap-sessions/bootstrap-session-001'));
+    expect(detailResponse.status).toBe(404);
+  });
+
   test('GET /artifacts/:artifactType/:targetId returns a stored summary', async () => {
     const { fetch, store } = createApiServer();
     store.upsertArtifact({

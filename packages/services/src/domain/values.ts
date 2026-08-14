@@ -75,6 +75,9 @@ export const CAPABILITY_KIND_VALUES = ['agent', 'skill', 'mcp', 'prompt-pack'] a
 export type CapabilityKind = (typeof CAPABILITY_KIND_VALUES)[number];
 
 export const PROPOSAL_ARTIFACT_TYPE_VALUES = [
+  'project-brief',
+  'world-foundation',
+  'story-blueprint',
   'world-change',
   'volume-outline',
   'chapter-outline',
@@ -90,7 +93,17 @@ export const PROPOSAL_ARTIFACT_TYPE_VALUES = [
 
 export type ProposalArtifactType = (typeof PROPOSAL_ARTIFACT_TYPE_VALUES)[number];
 
-export const SYSTEM_TASK_TYPE_VALUES = ['rebuild-graph', 're-sync-state'] as const;
+export const SYSTEM_TASK_TYPE_VALUES = [
+  'rebuild-graph',
+  're-sync-state',
+  'create-bootstrap-session',
+  'continue-bootstrap-session',
+  'submit-dialogue-round',
+  'submit-market-research',
+  'scan-import-directory',
+  'confirm-import',
+  'discard-bootstrap-session',
+] as const;
 
 export type SystemTaskType = (typeof SYSTEM_TASK_TYPE_VALUES)[number];
 
@@ -103,6 +116,13 @@ export const COMMAND_INTENT_VALUES = [
   'export-draft',
   'rebuild-graph',
   're-sync-state',
+  'create-bootstrap-session',
+  'continue-bootstrap-session',
+  'submit-dialogue-round',
+  'submit-market-research',
+  'scan-import-directory',
+  'confirm-import',
+  'discard-bootstrap-session',
   'retry-step',
   'resume-run',
   'abort-run',

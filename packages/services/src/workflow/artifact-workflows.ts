@@ -97,6 +97,21 @@ function buildArtifactWorkflow(artifactType: ProposalArtifactType): ArtifactWork
 export const chapterOutlineWorkflow: ArtifactWorkflow = buildArtifactWorkflow('chapter-outline');
 
 /**
+ * `project-brief` workflow skeleton.
+ */
+export const projectBriefWorkflow: ArtifactWorkflow = buildArtifactWorkflow('project-brief');
+
+/**
+ * `world-foundation` workflow skeleton.
+ */
+export const worldFoundationWorkflow: ArtifactWorkflow = buildArtifactWorkflow('world-foundation');
+
+/**
+ * `story-blueprint` workflow skeleton.
+ */
+export const storyBlueprintWorkflow: ArtifactWorkflow = buildArtifactWorkflow('story-blueprint');
+
+/**
  * `chapter-manuscript` workflow skeleton
  * (docs/architecture/modules/10-v1-execution-plan.md §10.7).
  */
@@ -115,6 +130,9 @@ export const volumeOutlineWorkflow: ArtifactWorkflow = buildArtifactWorkflow('vo
 export const worldChangeWorkflow: ArtifactWorkflow = buildArtifactWorkflow('world-change');
 
 const ARTIFACT_WORKFLOWS: ReadonlyMap<ProposalArtifactType, ArtifactWorkflow> = new Map([
+  ['project-brief', projectBriefWorkflow],
+  ['world-foundation', worldFoundationWorkflow],
+  ['story-blueprint', storyBlueprintWorkflow],
   ['chapter-outline', chapterOutlineWorkflow],
   ['chapter-manuscript', chapterManuscriptWorkflow],
   ['volume-outline', volumeOutlineWorkflow],

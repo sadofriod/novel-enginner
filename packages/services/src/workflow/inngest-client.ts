@@ -30,6 +30,42 @@ export type NovelEvents = {
       canonicalVersion?: string;
     };
   };
+  'novel/project-brief.requested': {
+    data: {
+      workspaceId: string;
+      bookId: string;
+      targetId: string;
+      intent: 'propose' | 'regenerate';
+      requestedBy: string;
+      idempotencyKey: string;
+      runId: string;
+      canonicalVersion?: string;
+    };
+  };
+  'novel/world-foundation.requested': {
+    data: {
+      workspaceId: string;
+      bookId: string;
+      targetId: string;
+      intent: 'propose' | 'regenerate';
+      requestedBy: string;
+      idempotencyKey: string;
+      runId: string;
+      canonicalVersion?: string;
+    };
+  };
+  'novel/story-blueprint.requested': {
+    data: {
+      workspaceId: string;
+      bookId: string;
+      targetId: string;
+      intent: 'propose' | 'regenerate';
+      requestedBy: string;
+      idempotencyKey: string;
+      runId: string;
+      canonicalVersion?: string;
+    };
+  };
   'novel/chapter-manuscript.requested': {
     data: {
       workspaceId: string;
@@ -125,6 +161,9 @@ async function dispatchArtifactCommand(
   } as const;
 
   const eventNameByArtifact: Readonly<Record<string, string>> = {
+    'project-brief': 'novel/project-brief.requested',
+    'world-foundation': 'novel/world-foundation.requested',
+    'story-blueprint': 'novel/story-blueprint.requested',
     'chapter-outline': 'novel/chapter-outline.requested',
     'chapter-manuscript': 'novel/chapter-manuscript.requested',
     'volume-outline': 'novel/volume-outline.requested',

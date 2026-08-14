@@ -15,6 +15,9 @@ const BLOCKING_PROPOSAL_STATUSES: ReadonlySet<string> = new Set([
 ]);
 
 const ARTIFACT_TYPE_WEIGHT: Record<string, number> = {
+  'project-brief': 120,
+  'world-foundation': 115,
+  'story-blueprint': 110,
   'chapter-outline': 100,
   'world-change': 90,
   'chapter-manuscript': 80,

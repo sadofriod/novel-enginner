@@ -1,0 +1,5 @@
+interface:
+  display_name: "Implement From Document"
+  short_description: "Plan, implement, and reconcile document requirements"
+policy:
+  allow_implicit_invocation: true

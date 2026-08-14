@@ -287,3 +287,74 @@ model SearchDocument {
   @@index([contentHash])
   @@map("search_documents")
 }
+
+// ---------------------------------------------------------------------------
+// Bootstrap sessions (§11.6)
+//
+// BootstrapSession models the recoverable onboarding flow for new projects.
+// Captures status transitions, revision snapshots, and evidence trails.
+// Sessions are abandoned after 30 days if incomplete.
+// ---------------------------------------------------------------------------
+
+model BootstrapSession {
+  id                 String   @id @default(uuid())
+  sessionId          String   @unique
+  workspaceId        String
+  bookId             String?  // Only set after first canonical commit
+  status             String   // drafting, awaiting-approval, advancing, import-review, ready-to-write, completed, abandoned, failed
+  stage              String   // current stage per 11.3 or 11.4 flow
+  path               String   // new-book or import
+  currentRevisionId   String?
+  completedAt        DateTime?
+  abandonedAt        DateTime?
+  failedAt           DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  revisions BootstrapRevision[]
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([stage])
+  @@index([abandonedAt])
+  @@map("bootstrap_sessions")
+}
+
+model BootstrapRevision {
+  id               String   @id @default(uuid())
+  revisionId       String   @unique
+  sessionId        String
+  stage            String   // which stage this revision represents
+  authorInput      Json?    // author's raw input for this round
+  structuredDraft  Json?    // parsed/structured version per stage
+  importMapping    Json?    // for import stages: file → artifact kind mapping
+  diagnostics      Json?    // validation errors/warnings
+  createdAt        DateTime @default(now())
+  expiresAt        DateTime // 30 days from creation for cleanup
+
+  session  BootstrapSession @relation(fields: [sessionId], references: [sessionId])
+  evidence BootstrapEvidence[]
+
+  @@index([sessionId])
+  @@index([stage])
+  @@index([expiresAt])
+  @@map("bootstrap_revisions")
+}
+
+model BootstrapEvidence {
+  id              String   @id @default(uuid())
+  evidenceId      String   @unique
+  revisionId      String
+  url             String
+  title           String
+  collectedAt     DateTime @default(now())
+  cleanedSummary  String?  // sanitized excerpt free of copyrighted content
+  licenseScope    String   // permissive, attribution-required, restricted, copyrighted
+  createdAt       DateTime @default(now())
+
+  revision BootstrapRevision @relation(fields: [revisionId], references: [revisionId])
+
+  @@index([revisionId])
+  @@index([url])
+  @@map("bootstrap_evidence")
+}

@@ -21,6 +21,7 @@ yarn-error.log*
 .env
 
 # build
+dist/
 public/main.js
 public/main.js.map
 public/styles.css
@@ -31,6 +32,3 @@ data/*.db
 data/*.db-journal
 data/*.db-shm
 data/*.db-wal
-
-# Obsidian workspace metadata (must not live at repo root)
-.obsidian/

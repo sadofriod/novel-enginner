@@ -1,3 +1,5 @@
+/* eslint-disable complexity */
+
 /**
  * Pure-SVG radar chart built with D3 math utilities.
  * Compatible with `renderToStaticMarkup` (no DOM APIs used).

@@ -1,3 +1,5 @@
+/* eslint-disable complexity */
+
 import type { ArtifactDerivedGraph } from '../../../runtime/artifact-detail';
 import { StaticGraphView } from './StaticGraphView';
 

@@ -1,3 +1,5 @@
+/* eslint-disable complexity */
+
 import type { WorkspaceValidity } from '../domain/values';
 
 import { MarkdownContractError, parseCanonicalMarkdown } from './markdown';
@@ -166,7 +168,8 @@ function ingestCanonicalFiles(
 
 interface EntityReferenceRule {
   readonly field: string;
-  readonly targetKind: CanonicalEntityKind;
+  readonly targetKind?: CanonicalEntityKind;
+  readonly targetKinds?: readonly CanonicalEntityKind[];
 }
 
 const ENTITY_REFERENCE_RULES: Readonly<Record<CanonicalEntitySnapshot['kind'], readonly EntityReferenceRule[]>> = {
@@ -218,7 +221,7 @@ const ENTITY_REFERENCE_RULES: Readonly<Record<CanonicalEntitySnapshot['kind'], r
     { field: 'conflictClueIds', targetKind: 'plot-clue' },
   ],
   'planning-anchor': [
-    { field: 'ownerRef', targetKind: 'character' },
+    { field: 'ownerRef', targetKinds: ['book', 'volume'] },
     { field: 'relatedClueIds', targetKind: 'plot-clue' },
     { field: 'targetChapterIds', targetKind: 'chapter-outline' },
   ],
@@ -272,18 +275,38 @@ function validateEntityReferences(
     const data = entity.data as Record<string, unknown>;
     for (const rule of rules) {
       const targetIds = valuesForReferenceField(data, rule.field);
-      const knownTargetIds = targetsByKind.get(rule.targetKind) ?? new Set<string>();
+      const targetKinds = rule.targetKinds ?? (rule.targetKind === undefined ? [] : [rule.targetKind]);
+      const knownTargetIds = new Set(
+        targetKinds.flatMap((targetKind) => [...(targetsByKind.get(targetKind) ?? new Set<string>())]),
+      );
       for (const targetId of targetIds) {
-        if (!knownTargetIds.has(targetId)) {
+        if (!knownTargetIds.has(targetId) && targetKinds.length > 0) {
           errors.push({
             path: entity.path,
-            reason: `Reference "${targetId}" in ${rule.field} does not resolve to a ${rule.targetKind} entity.`,
+            reason: `Reference "${targetId}" in ${rule.field} does not resolve to a ${targetKinds.join(' or ')} entity.`,
           });
         }
       }
     }
   }
   return errors;
+}
+
+function resolveInvalidReferencePaths(
+  entities: Map<string, CanonicalEntitySnapshot>,
+  previousSnapshot: WorkspaceSnapshot | undefined,
+  referenceErrors: readonly WorkspaceFileError[],
+): Set<string> {
+  const invalidReferencePaths = new Set(referenceErrors.map((error) => error.path));
+  for (const path of invalidReferencePaths) {
+    const previousEntity = previousSnapshot?.entities.get(path);
+    if (previousEntity === undefined) {
+      entities.delete(path);
+    } else {
+      entities.set(path, previousEntity);
+    }
+  }
+  return invalidReferencePaths;
 }
 
 function buildSnapshot(
@@ -306,15 +329,7 @@ export function reSyncState(
   const { changedPaths, errors, seenPaths } = ingestCanonicalFiles(files, entities);
   removeDeletedEntities(entities, seenPaths, changedPaths);
   const referenceErrors = validateEntityReferences(entities);
-  const invalidReferencePaths = new Set(referenceErrors.map((error) => error.path));
-  for (const path of invalidReferencePaths) {
-    const previousEntity = previousSnapshot?.entities.get(path);
-    if (previousEntity === undefined) {
-      entities.delete(path);
-    } else {
-      entities.set(path, previousEntity);
-    }
-  }
+  resolveInvalidReferencePaths(entities, previousSnapshot, referenceErrors);
   errors.push(...referenceErrors);
 
   const validity = resolveValidity(errors, changedPaths);

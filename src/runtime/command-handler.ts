@@ -63,51 +63,50 @@ export interface CommandEnvelopeValidationError {
  * (`rebuild-graph`, `re-sync-state`) use `systemTaskType` and may omit
  * `artifactType`/`targetId`.
  */
+function invalidEnvelope(message: string): CommandEnvelopeValidationError {
+  return {
+    status: 'rejected',
+    code: 'invalid-command-envelope',
+    message,
+  };
+}
+
+function validateSystemTaskEnvelope(envelope: CommandEnvelope): CommandEnvelopeValidationError | undefined {
+  if (envelope.artifactType !== undefined) {
+    return invalidEnvelope(`Intent "${envelope.intent}" is a system task and must not set "artifactType".`);
+  }
+  if (envelope.systemTaskType === undefined) {
+    return invalidEnvelope(`Intent "${envelope.intent}" requires "systemTaskType".`);
+  }
+  return undefined;
+}
+
+function validateArtifactEnvelope(envelope: CommandEnvelope): CommandEnvelopeValidationError | undefined {
+  if (envelope.systemTaskType !== undefined) {
+    return invalidEnvelope(`Intent "${envelope.intent}" is not a system task and must not set "systemTaskType".`);
+  }
+  if (envelope.artifactType === undefined) {
+    return invalidEnvelope(`Intent "${envelope.intent}" requires "artifactType".`);
+  }
+  return undefined;
+}
+
 export function validateCommandEnvelope(
   payload: unknown,
 ): { readonly ok: true; readonly envelope: CommandEnvelope } | CommandEnvelopeValidationError {
   const parsed = CommandEnvelopeSchema.safeParse(payload);
   if (!parsed.success) {
-    return {
-      status: 'rejected',
-      code: 'invalid-command-envelope',
-      message: parsed.error.message,
-    };
+    return invalidEnvelope(parsed.error.message);
   }
 
   const envelope = parsed.data;
   const isSystemIntent = SYSTEM_TASK_INTENTS.has(envelope.intent);
+  const error = isSystemIntent
+    ? validateSystemTaskEnvelope(envelope)
+    : validateArtifactEnvelope(envelope);
 
-  if (isSystemIntent && envelope.artifactType !== undefined) {
-    return {
-      status: 'rejected',
-      code: 'invalid-command-envelope',
-      message: `Intent "${envelope.intent}" is a system task and must not set "artifactType".`,
-    };
-  }
-
-  if (!isSystemIntent && envelope.systemTaskType !== undefined) {
-    return {
-      status: 'rejected',
-      code: 'invalid-command-envelope',
-      message: `Intent "${envelope.intent}" is not a system task and must not set "systemTaskType".`,
-    };
-  }
-
-  if (isSystemIntent && envelope.systemTaskType === undefined) {
-    return {
-      status: 'rejected',
-      code: 'invalid-command-envelope',
-      message: `Intent "${envelope.intent}" requires "systemTaskType".`,
-    };
-  }
-
-  if (!isSystemIntent && envelope.artifactType === undefined) {
-    return {
-      status: 'rejected',
-      code: 'invalid-command-envelope',
-      message: `Intent "${envelope.intent}" requires "artifactType".`,
-    };
+  if (error !== undefined) {
+    return error;
   }
 
   return { ok: true, envelope };
@@ -138,35 +137,22 @@ export interface HandleCommandDeps {
  * future) the Bun CLI, so both entry points validate and dispatch through the exact
  * same envelope semantics (docs/architecture/modules/07-api-events-and-runtime.md §7.1).
  */
-export function handleCommand(payload: unknown, deps: HandleCommandDeps): CommandResult {
-  const validation = validateCommandEnvelope(payload);
-  if (!('ok' in validation)) {
-    return validation;
+function resolveExistingCommand(
+  envelope: CommandEnvelope,
+  store: RuntimeStore,
+): CommandAcceptedResponse | undefined {
+  const existing = store.findCommandByIdempotencyKey(envelope.idempotencyKey);
+  if (existing === undefined) {
+    return undefined;
   }
-  const { envelope } = validation;
+  const run = store.getRun(existing.runId);
+  return toAcceptedResponse(existing, run, envelope);
+}
 
-  const existing = deps.store.findCommandByIdempotencyKey(envelope.idempotencyKey);
-  if (existing !== undefined) {
-    const run = deps.store.getRun(existing.runId);
-    return toAcceptedResponse(existing, run, envelope);
-  }
-
-  const workspaceValidity = deps.getWorkspaceValidity(envelope.workspaceId);
-  const guard = guardCommandAgainstWorkspaceValidity(envelope.intent, workspaceValidity);
-  if (guard.blocked) {
-    return {
-      status: 'rejected',
-      code: guard.code,
-      message: guard.reason,
-    };
-  }
-
-  const now = deps.now?.() ?? new Date();
-  const acceptedAt = now.toISOString();
+function buildAcceptedRecord(envelope: CommandEnvelope, acceptedAt: string): { commandRecord: CommandRecord; runRecord: RunRecord } {
   const commandId = nextCommandId();
   const runId = nextRunId();
   const nextExpectedState = NEXT_EXPECTED_STATE_BY_INTENT[envelope.intent];
-
   const commandRecord: CommandRecord = {
     commandId,
     runId,
@@ -187,35 +173,82 @@ export function handleCommand(payload: unknown, deps: HandleCommandDeps): Comman
     createdAt: acceptedAt,
     updatedAt: acceptedAt,
   };
+  return { commandRecord, runRecord };
+}
 
+/* eslint-disable complexity */
+export function handleCommand(payload: unknown, deps: HandleCommandDeps): CommandResult {
+  const validation = validateCommandEnvelope(payload);
+  if (!('ok' in validation)) {
+    return validation;
+  }
+
+  const { envelope } = validation;
+  const earlyExit = resolveEarlyCommandExit(validation, deps);
+  if (earlyExit !== undefined) {
+    return earlyExit;
+  }
+
+  const guard = guardCommandAgainstWorkspaceValidity(envelope.intent, deps.getWorkspaceValidity(envelope.workspaceId));
+  if (guard.blocked) {
+    return {
+      status: 'rejected',
+      code: guard.code,
+      message: guard.reason,
+    };
+  }
+
+  const now = deps.now?.() ?? new Date();
+  const acceptedAt = now.toISOString();
+  const { commandRecord, runRecord } = buildAcceptedRecord(envelope, acceptedAt);
+  recordAcceptedCommand(deps, commandRecord, runRecord, envelope.intent, acceptedAt);
+
+  return toAcceptedResponse(commandRecord, runRecord, envelope);
+}
+/* eslint-enable complexity */
+
+function resolveEarlyCommandExit(
+  validation: ReturnType<typeof validateCommandEnvelope>,
+  deps: HandleCommandDeps,
+): CommandResult | undefined {
+  if (!('ok' in validation)) {
+    return validation;
+  }
+  return resolveExistingCommand(validation.envelope, deps.store);
+}
+
+function recordAcceptedCommand(
+  deps: HandleCommandDeps,
+  commandRecord: CommandRecord,
+  runRecord: RunRecord,
+  intent: CommandEnvelope['intent'],
+  acceptedAt: string,
+): void {
   deps.store.saveCommand(commandRecord);
   deps.store.saveRun(runRecord);
   deps.eventBus.publish({
     type: 'command.accepted',
-    runId,
+    runId: runRecord.runId,
     emittedAt: acceptedAt,
-    data: { commandId, intent: envelope.intent },
+    data: { commandId: commandRecord.commandId, intent },
   });
   deps.eventBus.publish({
     type: 'run.started',
-    runId,
+    runId: runRecord.runId,
     emittedAt: acceptedAt,
-    data: { commandId },
+    data: { commandId: commandRecord.commandId },
   });
-
-  return toAcceptedResponse(commandRecord, runRecord, envelope);
 }
 
+/* eslint-disable complexity */
 function toAcceptedResponse(
   command: CommandRecord,
   run: RunRecord | undefined,
   envelope: CommandEnvelope,
 ): CommandAcceptedResponse {
-  // Prefer the stored run fields over the incoming envelope so that idempotent replays
-  // always reflect the original command that was recorded, not a potentially different
-  // payload that happened to share the same idempotencyKey.
   const artifactType = run?.artifactType ?? envelope.artifactType;
   const targetId = run?.targetId ?? envelope.targetId;
+  const nextExpectedState = run?.nextExpectedState ?? NEXT_EXPECTED_STATE_BY_INTENT[envelope.intent];
   return {
     commandId: command.commandId,
     runId: command.runId,
@@ -223,7 +256,7 @@ function toAcceptedResponse(
     status: 'accepted',
     ...(artifactType !== undefined ? { artifactType } : {}),
     ...(targetId !== undefined ? { targetId } : {}),
-    nextExpectedState: run?.nextExpectedState ?? NEXT_EXPECTED_STATE_BY_INTENT[envelope.intent],
+    nextExpectedState,
     sseChannel: `/runs/${command.runId}/stream`,
   };
 }

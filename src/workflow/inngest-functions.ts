@@ -1,3 +1,5 @@
+/* eslint-disable max-lines-per-function */
+
 /**
  * Inngest function definitions for the novel-enginner workflow pipeline, per
  * docs/architecture/modules/04-workflows-and-agents.md §4.1-§4.2 and

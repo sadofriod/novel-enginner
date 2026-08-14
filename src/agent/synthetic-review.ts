@@ -40,6 +40,53 @@ export interface ReviewFreshnessResult {
  * @param dispatch  Optional async callback to send the Inngest event. When absent the
  *                  function is pure/sync-safe (useful in tests).
  */
+function buildSyntheticReviewEvent(artifact: HandEditedArtifact): {
+  readonly name: 'novel/review.synthetic-requested';
+  readonly data: {
+    readonly workspaceId: string;
+    readonly bookId: string;
+    readonly artifactType: string;
+    readonly targetId: string;
+    readonly editedFilePath: string;
+    readonly editedText?: string;
+    readonly proposalId?: string;
+  };
+} {
+  return {
+    name: 'novel/review.synthetic-requested',
+    data: {
+      workspaceId: artifact.workspaceId,
+      bookId: artifact.bookId,
+      artifactType: artifact.artifactType,
+      targetId: artifact.targetId,
+      editedFilePath: artifact.filePath,
+      ...(artifact.editedText === undefined ? {} : { editedText: artifact.editedText }),
+      ...(artifact.proposalId === undefined ? {} : { proposalId: artifact.proposalId }),
+    },
+  };
+}
+
+async function dispatchIfStale(
+  artifact: HandEditedArtifact,
+  dispatch: ((event: {
+    name: 'novel/review.synthetic-requested';
+    data: {
+      workspaceId: string;
+      bookId: string;
+      artifactType: string;
+      targetId: string;
+      editedFilePath: string;
+      editedText?: string;
+      proposalId?: string;
+    };
+  }) => Promise<void>) | undefined,
+  freshness: { readonly status: 'fresh' | 'stale'; readonly reason?: string },
+): Promise<void> {
+  if (freshness.status === 'stale' && dispatch !== undefined) {
+    await dispatch(buildSyntheticReviewEvent(artifact));
+  }
+}
+
 export async function handleHandEditedArtifact(
   artifact: HandEditedArtifact,
   dispatch?: (event: {
@@ -56,21 +103,7 @@ export async function handleHandEditedArtifact(
   }) => Promise<void>,
 ): Promise<ReviewFreshnessResult> {
   const freshness = computeReviewFreshnessAfterManualEdit(artifact.wasApprovedBeforeEdit);
-
-  if (freshness.status === 'stale' && dispatch !== undefined) {
-    await dispatch({
-      name: 'novel/review.synthetic-requested',
-      data: {
-        workspaceId: artifact.workspaceId,
-        bookId: artifact.bookId,
-        artifactType: artifact.artifactType,
-        targetId: artifact.targetId,
-        editedFilePath: artifact.filePath,
-        ...(artifact.editedText === undefined ? {} : { editedText: artifact.editedText }),
-        ...(artifact.proposalId === undefined ? {} : { proposalId: artifact.proposalId }),
-      },
-    });
-  }
+  await dispatchIfStale(artifact, dispatch, freshness);
 
   return {
     stale: freshness.status === 'stale',

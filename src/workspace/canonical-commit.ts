@@ -17,14 +17,9 @@ export async function commitCanonicalFile(input: {
   readonly proposalSnapshotId: string;
   readonly currentSnapshotId: string;
 }): Promise<CanonicalCommitResult> {
-  if (input.workspaceValidity !== 'clean') {
-    return { committed: false, reason: `workspace is ${input.workspaceValidity}` };
-  }
-  if (input.proposalSnapshotId !== input.currentSnapshotId) {
-    return { committed: false, reason: 'canonical snapshot drifted' };
-  }
-  if (!isCanonicalWorkspacePath(input.relativePath)) {
-    return { committed: false, reason: 'target path is not canonical' };
+  const guard = validateCommitTarget(input);
+  if (guard !== undefined) {
+    return guard;
   }
 
   const root = resolve(input.workspaceRoot);
@@ -45,4 +40,22 @@ export async function commitCanonicalFile(input: {
   }
 
   return { committed: true, path: targetPath };
+}
+
+function validateCommitTarget(input: {
+  readonly workspaceValidity: WorkspaceValidity;
+  readonly proposalSnapshotId: string;
+  readonly currentSnapshotId: string;
+  readonly relativePath: string;
+}): CanonicalCommitResult | undefined {
+  if (input.workspaceValidity !== 'clean') {
+    return { committed: false, reason: `workspace is ${input.workspaceValidity}` };
+  }
+  if (input.proposalSnapshotId !== input.currentSnapshotId) {
+    return { committed: false, reason: 'canonical snapshot drifted' };
+  }
+  if (!isCanonicalWorkspacePath(input.relativePath)) {
+    return { committed: false, reason: 'target path is not canonical' };
+  }
+  return undefined;
 }

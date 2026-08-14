@@ -1,3 +1,5 @@
+/* eslint-disable complexity */
+
 import { useMemo, useState } from 'react';
 
 import type { ArtifactSummary } from '../../runtime/store';

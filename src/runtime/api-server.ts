@@ -1,3 +1,5 @@
+/* eslint-disable complexity, max-lines-per-function */
+
 import type { CommandEnvelope } from '../domain';
 import type { WorkspaceValidity } from '../domain/values';
 
@@ -12,7 +14,7 @@ import {
   persistCommand,
   persistRun,
 } from '../persistence/operations';
-import type { CommandRecord, RunRecord, ArtifactSummary } from './store';
+import type { ArtifactSummary, CommandRecord, RunRecord } from './store';
 import { applyProposalCommand } from '../workflow/command-lifecycle';
 import { handleHandEditedArtifact } from '../agent/synthetic-review';
 import { resolveLayoutRuleForPath } from '../workspace/layout';
@@ -32,6 +34,8 @@ const PROPOSAL_ARTIFACT_TYPE_BY_CANONICAL_KIND: Readonly<Record<string, string>>
   relationship: 'relationship-update',
   resource: 'resource-update',
 };
+
+const TERMINAL_RUN_EVENT_TYPES: ReadonlySet<string> = new Set(['run.completed', 'run.aborted', 'external.failure']);
 
 export interface CreateApiServerOptions {
   readonly store?: RuntimeStore;
@@ -65,21 +69,9 @@ export interface CreateApiServerOptions {
     readonly editedText?: string;
     readonly proposalId?: string;
   }) => Promise<void>;
-  /**
-   * Optional callback for the POST /sync/re-sync-state route. When provided, the server
-   * executes a real `reSyncState` pass over the supplied files, triggers
-   * `abortDriftedRuns` for any write-related runs whose canonical version is now stale
-   * (docs/architecture/modules/04-workflows-and-agents.md §4.5), and returns the result.
-   */
   readonly reSyncStateOptions?: {
     readonly getActiveRuns: () => readonly RunSnapshotRef[];
     readonly onRunsAborted?: (runIds: readonly string[]) => void;
-    /**
-     * Called with the synthetic commit produced by an editing session after each
-     * successful re-sync pass that changed at least one canonical file, per
-     * docs/architecture/modules/07-api-events-and-runtime.md §7.9: "手工改动经
-     * re-sync-state 进入系统时，也要生成一条合成 commit 审计记录".
-     */
     readonly onSyntheticCommit?: (commit: SyntheticCommit) => void;
   };
 }
@@ -105,24 +97,22 @@ function redirectResponse(location: string): Response {
   });
 }
 
-/**
- * Builds the minimal local HTTP/SSE control surface from
- * docs/architecture/modules/07-api-events-and-runtime.md §7.5. Returns a `fetch`
- * handler suitable for `Bun.serve({ fetch })`, kept framework-free so it can be tested
- * directly without starting a real listener.
- */
-export function createApiServer(options: CreateApiServerOptions = {}) {
-  const store = options.store ?? new RuntimeStore();
-  const eventBus = options.eventBus ?? new RunEventBus();
-  const getWorkspaceValidity = options.getWorkspaceValidity ?? (() => 'clean' as WorkspaceValidity);
-  const persistAcceptedCommand = options.persistAcceptedCommand
+function createPersistAcceptedCommand(
+  persistAcceptedCommand: CreateApiServerOptions['persistAcceptedCommand'],
+): ((envelope: CommandEnvelope, command: CommandRecord, run: RunRecord) => Promise<void>) | undefined {
+  return persistAcceptedCommand
     ?? (process.env['DATABASE_URL'] !== undefined
       ? async (envelope: CommandEnvelope, command: CommandRecord, run: RunRecord): Promise<void> => {
           await persistCommand(envelope.workspaceId, envelope.bookId, command);
           await persistRun(run, envelope.intent, envelope.requestedBy, envelope.idempotencyKey);
         }
       : undefined);
-  const loadPersistedCommand = options.loadPersistedCommand
+}
+
+function createLoadPersistedCommand(
+  loadPersistedCommand: CreateApiServerOptions['loadPersistedCommand'],
+): ((workspaceId: string, idempotencyKey: string) => Promise<{ readonly command: CommandRecord; readonly run?: RunRecord } | undefined>) | undefined {
+  return loadPersistedCommand
     ?? (process.env['DATABASE_URL'] !== undefined
       ? async (workspaceId: string, idempotencyKey: string): Promise<{ readonly command: CommandRecord; readonly run?: RunRecord } | undefined> => {
           const command = await findPersistedCommandByIdempotencyKey(workspaceId, idempotencyKey);
@@ -130,19 +120,35 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
             return undefined;
           }
           const run = await findPersistedRun(command.runId);
-          return run === undefined
-            ? { command }
-            : { command, run: { ...run, commandId: command.commandId } };
+          return run === undefined ? { command } : { command, run: { ...run, commandId: command.commandId } };
         }
       : undefined);
-  const dispatchCommand = options.dispatchCommand
+}
+
+function createDispatchCommand(
+  dispatchCommand: CreateApiServerOptions['dispatchCommand'],
+): ((envelope: CommandEnvelope, run: RunRecord, canonicalVersion?: string) => Promise<void>) | undefined {
+  return dispatchCommand
     ?? (process.env['INNGEST_EVENT_KEY'] !== undefined
       ? async (envelope: CommandEnvelope, _run: RunRecord, canonicalVersion?: string): Promise<void> => {
           const { dispatchCommandToInngest } = await import('../workflow/inngest-client');
           await dispatchCommandToInngest(envelope, canonicalVersion);
         }
       : undefined);
-  const dispatchSyntheticReview = options.dispatchSyntheticReview
+}
+
+function createDispatchSyntheticReview(
+  dispatchSyntheticReview: CreateApiServerOptions['dispatchSyntheticReview'],
+): ((input: {
+  readonly workspaceId: string;
+  readonly bookId: string;
+  readonly artifactType: string;
+  readonly targetId: string;
+  readonly editedFilePath: string;
+  readonly editedText?: string;
+  readonly proposalId?: string;
+}) => Promise<void>) | undefined {
+  return dispatchSyntheticReview
     ?? (process.env['INNGEST_EVENT_KEY'] !== undefined
       ? async (input: {
           readonly workspaceId: string;
@@ -157,7 +163,404 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
           await dispatchSyntheticReviewToInngest(input);
         }
       : undefined);
-  const reSyncStateOptions = options.reSyncStateOptions;
+}
+
+function resolveSelectedArtifact(
+  artifacts: readonly ArtifactSummary[],
+  artifactType: string | null,
+  targetId: string | null,
+): ArtifactSummary | undefined {
+  if (artifactType === null || targetId === null) {
+    return artifacts[0];
+  }
+  return artifacts.find((artifact) => artifact.artifactType === artifactType && artifact.targetId === targetId);
+}
+
+function resolveWorkspaceId(url: URL, fallbackWorkspaceId: string): string {
+  return url.searchParams.get('workspaceId') ?? fallbackWorkspaceId;
+}
+
+function resolveBookId(url: URL, fallbackBookId: string): string {
+  return url.searchParams.get('bookId') ?? fallbackBookId;
+}
+
+function readFormValue(form: FormData, key: string): string | undefined {
+  const value = form.get(key);
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+async function restorePersistedCommand(
+  validation: ReturnType<typeof validateCommandEnvelope>,
+  store: RuntimeStore,
+  eventBus: RunEventBus,
+  loadPersistedCommand: ((workspaceId: string, idempotencyKey: string) => Promise<{ readonly command: CommandRecord; readonly run?: RunRecord } | undefined>) | undefined,
+): Promise<boolean> {
+  if (!('ok' in validation) || loadPersistedCommand === undefined) {
+    return false;
+  }
+
+  const persisted = await loadPersistedCommand(validation.envelope.workspaceId, validation.envelope.idempotencyKey);
+  if (persisted === undefined) {
+    return false;
+  }
+
+  store.saveCommand(persisted.command);
+  if (persisted.run === undefined) {
+    return true;
+  }
+
+  store.saveRun(persisted.run);
+  if (eventBus.history(persisted.run.runId).length > 0) {
+    return true;
+  }
+
+  const emittedAt = persisted.command.acceptedAt;
+  eventBus.publish({
+    type: 'command.accepted',
+    runId: persisted.run.runId,
+    emittedAt,
+    data: { commandId: persisted.command.commandId },
+  });
+  eventBus.publish({
+    type: 'run.started',
+    runId: persisted.run.runId,
+    emittedAt,
+    data: { commandId: persisted.command.commandId },
+  });
+  return true;
+}
+
+function readSyncBody(request: Request): Promise<Record<string, unknown>> {
+  return request.json().then((parsed) => {
+    if (parsed !== null && typeof parsed === 'object') {
+      return parsed as Record<string, unknown>;
+    }
+    return {};
+  }).catch(() => ({}));
+}
+
+async function finalizeAcceptedCommand(
+  validation: ReturnType<typeof validateCommandEnvelope>,
+  result: CommandResult,
+  store: RuntimeStore,
+  eventBus: RunEventBus,
+  getWorkspaceValidity: (workspaceId: string) => WorkspaceValidity,
+  persistAcceptedCommand: ((envelope: CommandEnvelope, command: CommandRecord, run: RunRecord) => Promise<void>) | undefined,
+  commandWasKnown: boolean,
+  dispatchCommand: ((envelope: CommandEnvelope, run: RunRecord, canonicalVersion?: string) => Promise<void>) | undefined,
+): Promise<void> {
+  if (!('ok' in validation) || result.status !== 'accepted') {
+    return;
+  }
+
+  const command = store.getCommand(result.commandId);
+  const run = store.getRun(result.runId);
+  if (command !== undefined && run !== undefined && persistAcceptedCommand !== undefined) {
+    await persistAcceptedCommand(validation.envelope, command, run);
+  }
+
+  syncArtifactSummary(store, eventBus, validation.envelope, result, getWorkspaceValidity);
+  await applyPersistedProposalDecision({
+    store,
+    eventBus,
+    envelope: validation.envelope,
+    runId: result.runId,
+    getWorkspaceValidity,
+  });
+
+  if (!commandWasKnown && run !== undefined && dispatchCommand !== undefined) {
+    const canonicalVersion = store.getLastKnownSnapshot(validation.envelope.workspaceId)?.snapshotId;
+    await dispatchCommand(validation.envelope, run, canonicalVersion);
+  }
+}
+
+async function handleSyncRebuildGraph(
+  body: Record<string, unknown>,
+  result: CommandResult,
+  store: RuntimeStore,
+  options: CreateApiServerOptions,
+): Promise<Response> {
+  if (result.status === 'accepted' && options.onRebuildGraph !== undefined) {
+    const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : 'default';
+    const bookId = typeof body['bookId'] === 'string' ? body['bookId'] : 'book-unknown';
+    const snapshot = store.getLastKnownSnapshot(workspaceId);
+    if (snapshot !== undefined) {
+      await options.onRebuildGraph(workspaceId, bookId, snapshot);
+    }
+  }
+  return jsonResponse(result, result.status === 'accepted' ? 202 : 400);
+}
+
+async function handleReSyncState(
+  request: Request,
+  body: Record<string, unknown>,
+  store: RuntimeStore,
+  eventBus: RunEventBus,
+  getWorkspaceValidity: (workspaceId: string) => WorkspaceValidity,
+  reSyncStateOptions: CreateApiServerOptions['reSyncStateOptions'],
+  dispatchSyntheticReview: ((input: {
+    readonly workspaceId: string;
+    readonly bookId: string;
+    readonly artifactType: string;
+    readonly targetId: string;
+    readonly editedFilePath: string;
+    readonly editedText?: string;
+    readonly proposalId?: string;
+  }) => Promise<void>) | undefined,
+): Promise<Response> {
+  if (reSyncStateOptions === undefined) {
+    return jsonResponse({ status: 'rejected', code: 'not-found', message: 'Unknown sync route.' }, 404);
+  }
+
+  const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : 'default';
+  const files = Array.isArray(body['files']) ? (body['files'] as WorkspaceFileInput[]) : [];
+  const session = store.getOrCreateSyncSession(workspaceId);
+  const sessionState = session.applySave(files);
+  store.setLastKnownSnapshot(workspaceId, sessionState.snapshot);
+
+  await maybeDispatchSyntheticReviews({
+    body,
+    store,
+    dispatchSyntheticReview,
+    files,
+    sessionState,
+    workspaceId,
+  });
+
+  if (sessionState.validity !== 'invalid') {
+    const activeRuns = reSyncStateOptions.getActiveRuns();
+    const aborted = abortDriftedRuns(activeRuns, sessionState.snapshot.snapshotId);
+    maybePublishAbortedRuns(eventBus, aborted, reSyncStateOptions.onRunsAborted);
+    const syntheticCommit = session.commitSyntheticSession();
+    if (syntheticCommit !== undefined) {
+      reSyncStateOptions.onSyntheticCommit?.(syntheticCommit);
+    }
+  }
+
+  const payload = { ...body, intent: 're-sync-state', systemTaskType: 're-sync-state' };
+  const result = handleCommand(payload, { store, eventBus, getWorkspaceValidity });
+  if (result.status === 'accepted') {
+    const wsEventType = sessionState.validity === 'invalid' ? 'workspace.invalid' : 'workspace.valid';
+    eventBus.publish({
+      type: wsEventType,
+      runId: result.runId,
+      emittedAt: new Date().toISOString(),
+      data: {
+        validity: sessionState.validity,
+        snapshotId: sessionState.snapshot.snapshotId,
+        ...(sessionState.errors.length > 0 ? { errors: sessionState.errors } : {}),
+      },
+    });
+  }
+  return jsonResponse(result, result.status === 'accepted' ? 202 : 400);
+}
+
+async function maybeDispatchSyntheticReviews({
+  body,
+  store,
+  dispatchSyntheticReview,
+  files,
+  sessionState,
+  workspaceId,
+}: {
+  body: Record<string, unknown>;
+  store: RuntimeStore;
+  dispatchSyntheticReview: ((input: {
+    readonly workspaceId: string;
+    readonly bookId: string;
+    readonly artifactType: string;
+    readonly targetId: string;
+    readonly editedFilePath: string;
+    readonly editedText?: string;
+    readonly proposalId?: string;
+  }) => Promise<void>) | undefined;
+  files: WorkspaceFileInput[];
+  sessionState: ReturnType<ReturnType<typeof store.getOrCreateSyncSession>['applySave']>;
+  workspaceId: string;
+}): Promise<void> {
+  if (dispatchSyntheticReview === undefined) {
+    return;
+  }
+
+  const contentByPath = new Map(files.map((file) => [file.path, file.content]));
+  await Promise.all(sessionState.changedPaths.map(async (path) => {
+    const rule = resolveLayoutRuleForPath(path);
+    const entity = sessionState.snapshot.entities.get(path);
+    const entityId = entity?.data && typeof entity.data === 'object' && 'id' in entity.data ? entity.data.id : undefined;
+    if (rule === undefined || typeof entityId !== 'string') {
+      return;
+    }
+
+    const artifactType = PROPOSAL_ARTIFACT_TYPE_BY_CANONICAL_KIND[rule.kind] ?? rule.kind;
+    const artifact = store.getArtifact(artifactType, entityId);
+    if (artifact?.proposalStatus !== 'approved' && artifact?.proposalStatus !== 'override-approved') {
+      return;
+    }
+
+    const editedText = contentByPath.get(path);
+    await handleHandEditedArtifact(
+      {
+        workspaceId,
+        bookId: typeof body['bookId'] === 'string' ? body['bookId'] : 'book-unknown',
+        artifactType,
+        targetId: entityId,
+        filePath: path,
+        wasApprovedBeforeEdit: true,
+        ...(editedText !== undefined ? { editedText } : {}),
+        ...(artifact.activeProposalId !== undefined ? { proposalId: artifact.activeProposalId } : {}),
+      },
+      async (event) => dispatchSyntheticReview(event.data),
+    );
+  }));
+}
+
+function maybePublishAbortedRuns(
+  eventBus: RunEventBus,
+  aborted: ReturnType<typeof abortDriftedRuns>,
+  onRunsAborted: ((runIds: readonly string[]) => void) | undefined,
+): void {
+  if (aborted.length === 0) {
+    return;
+  }
+
+  const driftReasonById = new Map(aborted.map((d) => [d.run.runId, d.driftReason]));
+  const abortedIds = [...driftReasonById.keys()];
+  for (const runId of abortedIds) {
+    eventBus.publish({
+      type: 'run.aborted',
+      runId,
+      emittedAt: new Date().toISOString(),
+      data: { reason: driftReasonById.get(runId) },
+    });
+  }
+  onRunsAborted?.(abortedIds);
+}
+
+async function applyPersistedProposalDecision({
+  store,
+  eventBus,
+  envelope,
+  runId,
+  getWorkspaceValidity,
+}: {
+  store: RuntimeStore;
+  eventBus: RunEventBus;
+  envelope: CommandEnvelope;
+  runId: string;
+  getWorkspaceValidity: (workspaceId: string) => WorkspaceValidity;
+}): Promise<void> {
+  const decisionIntents = new Set(['approve', 'reject', 'override-approve', 'export-draft']);
+  if (!decisionIntents.has(envelope.intent) || envelope.artifactType === undefined || envelope.targetId === undefined) {
+    return;
+  }
+
+  const proposal = process.env['DATABASE_URL'] === undefined
+    ? undefined
+    : await findActiveProposalForTarget(envelope.workspaceId, envelope.artifactType, envelope.targetId);
+  const snapshot = store.getLastKnownSnapshot(envelope.workspaceId);
+  if (proposal === undefined || snapshot === undefined) {
+    eventBus.publish({
+      type: 'run.step.failed',
+      runId,
+      emittedAt: new Date().toISOString(),
+      data: { reason: proposal === undefined ? 'active proposal not found' : 'canonical snapshot not found' },
+    });
+    return;
+  }
+
+  const decision = applyProposalCommand({
+    envelope,
+    proposal,
+    currentCanonicalVersion: snapshot.snapshotId,
+    workspaceValidity: getWorkspaceValidity(envelope.workspaceId),
+  });
+  if (!decision.accepted) {
+    eventBus.publish({
+      type: 'run.step.failed',
+      runId,
+      emittedAt: new Date().toISOString(),
+      data: { reason: decision.reason },
+    });
+    return;
+  }
+
+  if (process.env['DATABASE_URL'] !== undefined) {
+    const { persistProposal } = await import('../persistence/operations');
+    await persistProposal(envelope.workspaceId, envelope.bookId, decision.proposal);
+  }
+  updateArtifactDecisionStatus(store, envelope, decision.proposal.status);
+  eventBus.publish({
+    type: decision.canCommit ? 'artifact.canonical-committed' : 'artifact.approved',
+    runId,
+    emittedAt: new Date().toISOString(),
+    data: { proposalId: decision.proposal.proposalId, status: decision.proposal.status },
+  });
+}
+
+function updateArtifactDecisionStatus(store: RuntimeStore, envelope: CommandEnvelope, proposalStatus: string): void {
+  if (envelope.artifactType === undefined || envelope.targetId === undefined) {
+    return;
+  }
+  const existing = store.getArtifact(envelope.artifactType, envelope.targetId);
+  if (existing === undefined) {
+    return;
+  }
+  store.upsertArtifact({
+    ...existing,
+    proposalStatus,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+function syncArtifactSummary(
+  store: RuntimeStore,
+  eventBus: RunEventBus,
+  envelope: CommandEnvelope,
+  result: CommandResult,
+  getWorkspaceValidity: (workspaceId: string) => WorkspaceValidity,
+): void {
+  if (result.status !== 'accepted' || envelope.artifactType === undefined || envelope.targetId === undefined) {
+    return;
+  }
+
+  const existing = store.getArtifact(envelope.artifactType, envelope.targetId);
+  if (envelope.intent === 'propose' || envelope.intent === 'regenerate') {
+    store.upsertArtifact({
+      ...existing,
+      artifactType: envelope.artifactType,
+      targetId: envelope.targetId,
+      canonicalStatus: existing?.canonicalStatus ?? 'draft',
+      activeProposalId: existing?.activeProposalId ?? `proposal-${result.runId}`,
+      proposalStatus: 'pending-approval',
+      updatedAt: result.acceptedAt,
+    });
+    return;
+  }
+
+  store.upsertArtifact({
+    ...existing,
+    artifactType: envelope.artifactType,
+    targetId: envelope.targetId,
+    proposalStatus: resolveProposalStatus(envelope.intent, getWorkspaceValidity(envelope.workspaceId)),
+    updatedAt: result.acceptedAt,
+  });
+}
+
+/**
+ * Builds the minimal local HTTP/SSE control surface from
+ * docs/architecture/modules/07-api-events-and-runtime.md §7.5. Returns a `fetch`
+ * handler suitable for `Bun.serve({ fetch })`, kept framework-free so it can be tested
+ * directly without starting a real listener.
+ */
+export function createApiServer(options: CreateApiServerOptions = {}) {
+  const store = options.store ?? new RuntimeStore();
+  const eventBus = options.eventBus ?? new RunEventBus();
+  const getWorkspaceValidity = options.getWorkspaceValidity ?? (() => 'clean' as WorkspaceValidity);
+  const persistAcceptedCommand = createPersistAcceptedCommand(options.persistAcceptedCommand);
+  const loadPersistedCommand = createLoadPersistedCommand(options.loadPersistedCommand);
+  const dispatchCommand = createDispatchCommand(options.dispatchCommand);
+  const dispatchSyntheticReview = createDispatchSyntheticReview(options.dispatchSyntheticReview);
+  const reSyncStateOptions = options.reSyncStateOptions ?? { getActiveRuns: () => [] };
   const routes = listRegisteredRoutes();
 
   const api: RouteApi = {
@@ -189,15 +592,15 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
 
   function handleApp(request: Request): Response {
     const url = new URL(request.url);
-    const artifactType = url.searchParams.get('artifactType');
-    const targetId = url.searchParams.get('targetId');
     const artifacts = store.listArtifacts();
     const runs = store.listRuns();
-    const selectedArtifact = artifactType === null || targetId === null
-      ? artifacts[0]
-      : artifacts.find((artifact) => artifact.artifactType === artifactType && artifact.targetId === targetId);
-    const workspaceId = url.searchParams.get('workspaceId') ?? runs[0]?.workspaceId ?? 'workspace-local';
-    const bookId = url.searchParams.get('bookId') ?? runs[0]?.bookId ?? 'book-local';
+    const selectedArtifact = resolveSelectedArtifact(
+      artifacts,
+      url.searchParams.get('artifactType'),
+      url.searchParams.get('targetId'),
+    );
+    const workspaceId = resolveWorkspaceId(url, runs[0]?.workspaceId ?? 'workspace-local');
+    const bookId = resolveBookId(url, runs[0]?.bookId ?? 'book-local');
     return htmlResponse(renderControlConsolePage({ artifacts, runs, selectedArtifact, workspaceId, bookId }));
   }
 
@@ -223,22 +626,20 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
       applyInlineEditNote(artifactType, targetId, note.trim());
     }
 
-    await handlePostCommand(
-      new Request('http://local.test/commands', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          workspaceId,
-          bookId,
-          artifactType,
-          targetId,
-          intent,
-          requestedBy: 'author-local',
-          approvalMode: 'manual',
-          idempotencyKey: `web-${intent}-${targetId}-${Date.now().toString(36)}`,
-        }),
+    await handlePostCommand(new Request('http://local.test/commands', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        workspaceId,
+        bookId,
+        artifactType,
+        targetId,
+        intent,
+        requestedBy: 'author-local',
+        approvalMode: 'manual',
+        idempotencyKey: `web-${intent}-${targetId}-${Date.now().toString(36)}`,
       }),
-    );
+    }));
     return redirectResponse(redirectTo);
   }
 
@@ -260,99 +661,27 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
     try {
       payload = await request.json();
     } catch {
-      return jsonResponse(
-        { status: 'rejected', code: 'invalid-command-envelope', message: 'Request body must be JSON.' },
-        400,
-      );
+      return jsonResponse({ status: 'rejected', code: 'invalid-command-envelope', message: 'Request body must be JSON.' }, 400);
     }
 
     const validation = validateCommandEnvelope(payload);
-    let commandWasKnown = 'ok' in validation
-      && store.findCommandByIdempotencyKey(validation.envelope.idempotencyKey) !== undefined;
-    if ('ok' in validation && loadPersistedCommand !== undefined) {
-      const persisted = await loadPersistedCommand(validation.envelope.workspaceId, validation.envelope.idempotencyKey);
-      if (persisted !== undefined) {
-        commandWasKnown = true;
-        store.saveCommand(persisted.command);
-        if (persisted.run !== undefined) {
-          store.saveRun(persisted.run);
-        }
-      }
-    }
+    const commandWasKnown = (('ok' in validation)
+      && store.findCommandByIdempotencyKey(validation.envelope.idempotencyKey) !== undefined)
+      || await restorePersistedCommand(validation, store, eventBus, loadPersistedCommand);
     const result = handleCommand(payload, { store, eventBus, getWorkspaceValidity });
     if (result.status === 'accepted') {
-      const acceptedValidation = validateCommandEnvelope(payload);
-      if ('ok' in acceptedValidation) {
-        const command = store.getCommand(result.commandId);
-        const run = store.getRun(result.runId);
-        if (command !== undefined && run !== undefined && persistAcceptedCommand !== undefined) {
-          await persistAcceptedCommand(acceptedValidation.envelope, command, run);
-        }
-        syncArtifactSummary(acceptedValidation.envelope, result);
-        await applyPersistedProposalDecision(acceptedValidation.envelope, result.runId);
-        if (!commandWasKnown && run !== undefined && dispatchCommand !== undefined) {
-          const canonicalVersion = store.getLastKnownSnapshot(acceptedValidation.envelope.workspaceId)?.snapshotId;
-          await dispatchCommand(acceptedValidation.envelope, run, canonicalVersion);
-        }
-      }
+      await finalizeAcceptedCommand(
+        validation,
+        result,
+        store,
+        eventBus,
+        getWorkspaceValidity,
+        persistAcceptedCommand,
+        commandWasKnown,
+        dispatchCommand,
+      );
     }
     return jsonResponse(result, result.status === 'accepted' ? 202 : 400);
-  }
-
-  async function applyPersistedProposalDecision(
-    envelope: CommandEnvelope,
-    runId: string,
-  ): Promise<void> {
-    const decisionIntents = new Set(['approve', 'reject', 'override-approve', 'export-draft']);
-    if (
-      !decisionIntents.has(envelope.intent)
-      || envelope.artifactType === undefined
-      || envelope.targetId === undefined
-    ) {
-      return;
-    }
-
-    const proposal = process.env['DATABASE_URL'] === undefined
-      ? undefined
-      : await findActiveProposalForTarget(envelope.workspaceId, envelope.artifactType, envelope.targetId);
-    const snapshot = store.getLastKnownSnapshot(envelope.workspaceId);
-    if (proposal === undefined || snapshot === undefined) {
-      eventBus.publish({
-        type: 'run.step.failed',
-        runId,
-        emittedAt: new Date().toISOString(),
-        data: { reason: proposal === undefined ? 'active proposal not found' : 'canonical snapshot not found' },
-      });
-      return;
-    }
-
-    const decision = applyProposalCommand({
-      envelope,
-      proposal,
-      currentCanonicalVersion: snapshot.snapshotId,
-      workspaceValidity: getWorkspaceValidity(envelope.workspaceId),
-    });
-    if (!decision.accepted) {
-      eventBus.publish({
-        type: 'run.step.failed',
-        runId,
-        emittedAt: new Date().toISOString(),
-        data: { reason: decision.reason },
-      });
-      return;
-    }
-
-    if (process.env['DATABASE_URL'] !== undefined) {
-      const { persistProposal } = await import('../persistence/operations');
-      await persistProposal(envelope.workspaceId, envelope.bookId, decision.proposal);
-    }
-    updateArtifactDecisionStatus(envelope, decision.proposal.status);
-    eventBus.publish({
-      type: decision.canCommit ? 'artifact.canonical-committed' : 'artifact.approved',
-      runId,
-      emittedAt: new Date().toISOString(),
-      data: { proposalId: decision.proposal.proposalId, status: decision.proposal.status },
-    });
   }
 
   function handleGetCommand(commandId: string): Response {
@@ -395,14 +724,24 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
       ? parsedLastEventId
       : undefined;
     let unsubscribe: (() => void) | undefined;
+    const enqueueEvent = (controller: ReadableStreamDefaultController<Uint8Array>, event: import('./event-bus').RunEvent): void => {
+      controller.enqueue(encoder.encode(formatSseEvent(event)));
+      if (TERMINAL_RUN_EVENT_TYPES.has(event.type)) {
+        unsubscribe?.();
+        controller.close();
+      }
+    };
     const stream = new ReadableStream({
       start(controller) {
-        for (const event of eventBus.historyAfter(runId, lastEventId)) {
-          controller.enqueue(encoder.encode(formatSseEvent(event)));
-        }
         unsubscribe = eventBus.subscribe(runId, (event) => {
-          controller.enqueue(encoder.encode(formatSseEvent(event)));
+          enqueueEvent(controller, event);
         });
+        for (const event of eventBus.historyAfter(runId, lastEventId)) {
+          enqueueEvent(controller, event);
+          if (TERMINAL_RUN_EVENT_TYPES.has(event.type)) {
+            break;
+          }
+        }
       },
       cancel() {
         unsubscribe?.();
@@ -419,202 +758,53 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
     });
   }
 
-  function syncArtifactSummary(envelope: CommandEnvelope, result: CommandResult): void {
-    if (result.status !== 'accepted' || envelope.artifactType === undefined || envelope.targetId === undefined) {
-      return;
-    }
-    const existing = store.getArtifact(envelope.artifactType, envelope.targetId);
-    if (envelope.intent === 'propose' || envelope.intent === 'regenerate') {
-      store.upsertArtifact({
-        ...existing,
-        artifactType: envelope.artifactType,
-        targetId: envelope.targetId,
-        canonicalStatus: existing?.canonicalStatus ?? 'draft',
-        activeProposalId: existing?.activeProposalId ?? `proposal-${result.runId}`,
-        proposalStatus: 'pending-approval',
-        updatedAt: result.acceptedAt,
-      });
-      return;
-    }
-
-    store.upsertArtifact({
-      ...existing,
-      artifactType: envelope.artifactType,
-      targetId: envelope.targetId,
-      proposalStatus: resolveProposalStatus(envelope.intent, getWorkspaceValidity(envelope.workspaceId)),
-      updatedAt: result.acceptedAt,
-    });
-  }
-
-  function updateArtifactDecisionStatus(envelope: CommandEnvelope, proposalStatus: string): void {
-    if (envelope.artifactType === undefined || envelope.targetId === undefined) {
-      return;
-    }
-    const existing = store.getArtifact(envelope.artifactType, envelope.targetId);
-    if (existing === undefined) {
-      return;
-    }
-    store.upsertArtifact({
-      ...existing,
-      proposalStatus,
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
   async function handleSyncCommand(syncIntent: string, request: Request): Promise<Response> {
     if (syncIntent !== 'rebuild-graph' && syncIntent !== 're-sync-state') {
       return jsonResponse({ status: 'rejected', code: 'not-found', message: 'Unknown sync route.' }, 404);
     }
 
-    let body: Record<string, unknown> = {};
-    try {
-      const parsed = await request.json();
-      if (parsed !== null && typeof parsed === 'object') {
-        body = parsed as Record<string, unknown>;
-      }
-    } catch {
-      // Empty body is acceptable for sync commands; validation below reports specifics.
-    }
-
-    // docs/architecture/modules/04-workflows-and-agents.md §4.5:
-    // When a new canonical snapshot lands via `re-sync-state`, abort all active
-    // write-related runs whose `basedOnCanonicalVersion` is now stale.
-    if (syncIntent === 're-sync-state' && reSyncStateOptions !== undefined) {
-      const files = Array.isArray(body['files'])
-        ? (body['files'] as WorkspaceFileInput[])
-        : [];
-
-      // Use the per-workspace WorkspaceSyncSession so that repeated saves are
-      // aggregated into a single synthetic commit (§2.6).
-      const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : 'default';
-      const session = store.getOrCreateSyncSession(workspaceId);
-      const sessionState = session.applySave(files);
-      store.setLastKnownSnapshot(workspaceId, sessionState.snapshot);
-
-      if (dispatchSyntheticReview !== undefined) {
-        const contentByPath = new Map(files.map((file) => [file.path, file.content]));
-        await Promise.all(sessionState.changedPaths.map(async (path) => {
-          const rule = resolveLayoutRuleForPath(path);
-          const entity = sessionState.snapshot.entities.get(path);
-          const entityId = entity?.data && typeof entity.data === 'object' && 'id' in entity.data
-            ? entity.data.id
-            : undefined;
-          if (rule === undefined || typeof entityId !== 'string') {
-            return;
-          }
-          const artifactType = PROPOSAL_ARTIFACT_TYPE_BY_CANONICAL_KIND[rule.kind] ?? rule.kind;
-          const artifact = store.getArtifact(artifactType, entityId);
-          if (artifact?.proposalStatus !== 'approved' && artifact?.proposalStatus !== 'override-approved') {
-            return;
-          }
-          const editedText = contentByPath.get(path);
-          await handleHandEditedArtifact(
-            {
-              workspaceId,
-              bookId: typeof body['bookId'] === 'string' ? body['bookId'] : 'book-unknown',
-              artifactType,
-              targetId: entityId,
-              filePath: path,
-              wasApprovedBeforeEdit: true,
-              ...(editedText !== undefined ? { editedText } : {}),
-              ...(artifact.activeProposalId !== undefined ? { proposalId: artifact.activeProposalId } : {}),
-            },
-            async (event) => dispatchSyntheticReview(event.data),
-          );
-        }));
-      }
-
-      if (sessionState.validity !== 'invalid') {
-        const activeRuns = reSyncStateOptions.getActiveRuns();
-        const aborted = abortDriftedRuns(activeRuns, sessionState.snapshot.snapshotId);
-        if (aborted.length > 0) {
-          const driftReasonById = new Map(aborted.map((d) => [d.run.runId, d.driftReason]));
-          const abortedIds = [...driftReasonById.keys()];
-          for (const runId of abortedIds) {
-            eventBus.publish({
-              type: 'run.aborted',
-              runId,
-              emittedAt: new Date().toISOString(),
-              data: { reason: driftReasonById.get(runId) },
-            });
-          }
-          reSyncStateOptions.onRunsAborted?.(abortedIds);
-        }
-
-        // docs/architecture/modules/07-api-events-and-runtime.md §7.9:
-        // Generate a synthetic commit audit record after a successful re-sync with
-        // changed paths.
-        const syntheticCommit = session.commitSyntheticSession();
-        if (syntheticCommit !== undefined) {
-          reSyncStateOptions.onSyntheticCommit?.(syntheticCommit);
-        }
-      }
-
-      const payload = { ...body, intent: syncIntent, systemTaskType: syncIntent };
-      const result = handleCommand(payload, { store, eventBus, getWorkspaceValidity });
-
-      // docs/architecture/modules/07-api-events-and-runtime.md §7.6:
-      // Emit workspace.valid or workspace.invalid SSE events after a re-sync pass so
-      // subscribers on the re-sync run's channel can react to the workspace state change.
-      if (result.status === 'accepted') {
-        const wsEventType = sessionState.validity === 'invalid' ? 'workspace.invalid' : 'workspace.valid';
-        eventBus.publish({
-          type: wsEventType,
-          runId: result.runId,
-          emittedAt: new Date().toISOString(),
-          data: {
-            validity: sessionState.validity,
-            snapshotId: sessionState.snapshot.snapshotId,
-            ...(sessionState.errors.length > 0 ? { errors: sessionState.errors } : {}),
-          },
-        });
-      }
-
-      return jsonResponse(result, result.status === 'accepted' ? 202 : 400);
+    const body = await readSyncBody(request);
+    if (syncIntent === 're-sync-state') {
+      return handleReSyncState(request, body, store, eventBus, getWorkspaceValidity, reSyncStateOptions, dispatchSyntheticReview);
     }
 
     const payload = { ...body, intent: syncIntent, systemTaskType: syncIntent };
     const result = handleCommand(payload, { store, eventBus, getWorkspaceValidity });
-    if (result.status === 'accepted' && syncIntent === 'rebuild-graph' && options.onRebuildGraph !== undefined) {
-      const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : 'default';
-      const bookId = typeof body['bookId'] === 'string' ? body['bookId'] : 'book-unknown';
-      const snapshot = store.getLastKnownSnapshot(workspaceId);
-      if (snapshot !== undefined) {
-        await options.onRebuildGraph(workspaceId, bookId, snapshot);
-      }
-    }
-    return jsonResponse(result, result.status === 'accepted' ? 202 : 400);
+    return handleSyncRebuildGraph(body, result, store, options);
   }
 
   return { fetch, store, eventBus };
 }
 
-function readFormValue(form: FormData, key: string): string | undefined {
-  const value = form.get(key);
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
 function resolveProposalStatus(intent: CommandEnvelope['intent'], workspaceValidity: WorkspaceValidity): string {
   if (intent === 'approve') {
-    return workspaceValidity === 'dirty'
-      ? 'waiting-sync'
-      : workspaceValidity === 'invalid'
-        ? 'commit-blocked'
-        : 'approved';
+    if (workspaceValidity === 'dirty') {
+      return 'waiting-sync';
+    }
+    if (workspaceValidity === 'invalid') {
+      return 'commit-blocked';
+    }
+    return 'approved';
   }
+
   if (intent === 'override-approve') {
-    return workspaceValidity === 'dirty'
-      ? 'waiting-sync'
-      : workspaceValidity === 'invalid'
-        ? 'commit-blocked'
-        : 'override-approved';
+    if (workspaceValidity === 'dirty') {
+      return 'waiting-sync';
+    }
+    if (workspaceValidity === 'invalid') {
+      return 'commit-blocked';
+    }
+    return 'override-approved';
   }
+
   if (intent === 'reject') {
     return 'rejected';
   }
+
   if (intent === 'export-draft') {
     return 'exported';
   }
+
   return 'pending-approval';
 }
 

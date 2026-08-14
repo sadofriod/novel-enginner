@@ -105,6 +105,54 @@ describe('reSyncState', () => {
     expect(result.errors[0]?.reason).toContain('rel-missing');
     expect(result.snapshot.entities.size).toBe(0);
   });
+
+  test('accepts planning anchors owned by a book or volume', () => {
+    const book = `---
+id: book-test
+title: Test Book
+status: active
+activeVolumeId: volume-001
+latestCanonicalVersion: snap-0001
+globalPromises: [pa-promise]
+globalConstraints: []
+defaultChapterTypePolicy:
+  maxConsecutiveSamePrimaryType: 2
+---
+`;
+    const volume = `---
+id: volume-001
+title: Test Volume
+status: active
+sequenceNumber: 1
+goal: Test goal
+stage: escalation
+chapterRoster: []
+targetChapterCount: 1
+requiredCluePayoffs: []
+milestones: []
+---
+`;
+    const anchor = `---
+id: pa-promise
+kind: promise
+title: Test promise
+status: active
+ownerRef: book-test
+summary: A test promise
+relatedClueIds: []
+targetChapterIds: []
+---
+`;
+
+    const result = reSyncState([
+      { path: 'state/book/book.md', content: book },
+      { path: 'state/volumes/volume-001.md', content: volume },
+      { path: 'state/planning-anchors/pa-promise.md', content: anchor },
+    ]);
+
+    expect(result.validity).toBe('dirty');
+    expect(result.errors).toEqual([]);
+  });
 });
 
 describe('WorkspaceSyncSession', () => {

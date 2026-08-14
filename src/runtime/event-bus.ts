@@ -27,11 +27,7 @@ export class RunEventBus {
     const nextEventId = (this.nextEventIdByRun.get(event.runId) ?? 0) + 1;
     this.nextEventIdByRun.set(event.runId, nextEventId);
     const eventWithId = { ...event, id: event.id ?? nextEventId };
-    const history = [...(this.historyByRun.get(event.runId) ?? []), eventWithId];
-    if (history.length > this.maxHistorySize) {
-      history.splice(0, history.length - this.maxHistorySize);
-    }
-    this.historyByRun.set(event.runId, history);
+    this.recordHistory(event.runId, eventWithId);
 
     const listeners = this.listenersByRun.get(event.runId);
     if (listeners === undefined) {
@@ -40,6 +36,14 @@ export class RunEventBus {
     for (const listener of listeners) {
       listener(eventWithId);
     }
+  }
+
+  private recordHistory(runId: string, event: RunEvent): void {
+    const history = [...(this.historyByRun.get(runId) ?? []), event];
+    if (history.length > this.maxHistorySize) {
+      history.splice(0, history.length - this.maxHistorySize);
+    }
+    this.historyByRun.set(runId, history);
   }
 
   subscribe(runId: string, listener: Listener): () => void {

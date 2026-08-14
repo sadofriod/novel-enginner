@@ -17,10 +17,27 @@ export function BlockedStateBanner({ artifact }: BlockedStateBannerProps) {
     return null;
   }
 
-  const isCommitBlocked = artifact.proposalStatus === 'commit-blocked';
-  const message = isCommitBlocked
-    ? '已批准，但工作区当前无法安全写入 canonical。请修复工作区后重试落盘。'
-    : '已批准，正在等待工作区重新同步（waiting-sync）。落盘完成后会自动刷新。';
+  const bannerByStatus = {
+    'commit-blocked': {
+      icon: '⛔ 批准但未落盘',
+      color: '#b71c1c',
+      border: '#ef9a9a',
+      background: '#ffebee',
+      message: '已批准，但工作区当前无法安全写入 canonical。请修复工作区后重试落盘。',
+    },
+    'waiting-sync': {
+      icon: '⏳ 等待同步',
+      color: '#f57f17',
+      border: '#ffe082',
+      background: '#fff8e1',
+      message: '已批准，正在等待工作区重新同步（waiting-sync）。落盘完成后会自动刷新。',
+    },
+  } as const;
+
+  const banner = bannerByStatus[artifact.proposalStatus as keyof typeof bannerByStatus];
+  if (banner === undefined) {
+    return null;
+  }
 
   return (
     <div
@@ -30,16 +47,16 @@ export function BlockedStateBanner({ artifact }: BlockedStateBannerProps) {
         gap: '10px',
         padding: '10px 14px',
         borderRadius: '4px',
-        border: `1px solid ${isCommitBlocked ? '#ef9a9a' : '#ffe082'}`,
-        background: isCommitBlocked ? '#ffebee' : '#fff8e1',
-        color: isCommitBlocked ? '#b71c1c' : '#f57f17',
+        border: `1px solid ${banner.border}`,
+        background: banner.background,
+        color: banner.color,
         fontSize: '13px',
       }}
     >
       <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
-        {isCommitBlocked ? '⛔ 批准但未落盘' : '⏳ 等待同步'}
+        {banner.icon}
       </span>
-      <span>{message}</span>
+      <span>{banner.message}</span>
     </div>
   );
 }

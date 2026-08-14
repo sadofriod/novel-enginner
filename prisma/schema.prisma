@@ -27,7 +27,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // Accepted command envelope records are persisted separately from run execution

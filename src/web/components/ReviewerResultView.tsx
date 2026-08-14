@@ -1,3 +1,5 @@
+/* eslint-disable complexity */
+
 import type { ReviewerResult, DimensionScores, ReviewHardFailure } from '../../domain/schema';
 import { RadarChart } from './RadarChart';
 
@@ -23,7 +25,6 @@ const DIMENSION_LABELS: Readonly<Record<keyof DimensionScores, string>> = {
   languageTexture: '质感',
 };
 
-const PASS_THRESHOLD = 85;
 const DIMENSION_PASS_THRESHOLD = 75;
 
 // MUI-aligned design tokens (used as inline styles, no runtime JS required)

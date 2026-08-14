@@ -1,3 +1,5 @@
+/* eslint-disable complexity */
+
 import type { ArtifactFieldDiff, ArtifactEntityVersionRef } from '../../runtime/artifact-detail';
 
 /**

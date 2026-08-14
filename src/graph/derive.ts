@@ -158,6 +158,26 @@ function deriveTechRuleNodes(snapshot: WorkspaceSnapshot, nodes: GraphNode[]): v
   }
 }
 
+function derivePlotClueEdges(
+  clue: PlotClue,
+  entityPath: string,
+  edges: GraphEdge[],
+  seenEdgeIds: Set<string>,
+): void {
+  for (const characterId of clue.knownByCharacterIds) {
+    pushEdge(edges, seenEdgeIds, 'knows', characterId, clue.id, entityPath);
+  }
+  for (const characterId of clue.misledCharacterIds) {
+    pushEdge(edges, seenEdgeIds, 'misunderstands', characterId, clue.id, entityPath);
+  }
+  for (const dependencyId of clue.dependencyClueIds) {
+    pushEdge(edges, seenEdgeIds, 'depends-on', clue.id, dependencyId, entityPath);
+  }
+  for (const conflictId of clue.conflictClueIds) {
+    pushEdge(edges, seenEdgeIds, 'conflicts-with', clue.id, conflictId, entityPath);
+  }
+}
+
 function derivePlotClueNodesAndEdges(
   snapshot: WorkspaceSnapshot,
   nodes: GraphNode[],
@@ -173,19 +193,55 @@ function derivePlotClueNodesAndEdges(
       sourceRef: entity.path,
       canonicalKind: 'plot-clue',
     });
+    derivePlotClueEdges(clue, entity.path, edges, seenEdgeIds);
+  }
+}
 
-    for (const characterId of clue.knownByCharacterIds) {
-      pushEdge(edges, seenEdgeIds, 'knows', characterId, clue.id, entity.path);
-    }
-    for (const characterId of clue.misledCharacterIds) {
-      pushEdge(edges, seenEdgeIds, 'misunderstands', characterId, clue.id, entity.path);
-    }
-    for (const dependencyId of clue.dependencyClueIds) {
-      pushEdge(edges, seenEdgeIds, 'depends-on', clue.id, dependencyId, entity.path);
-    }
-    for (const conflictId of clue.conflictClueIds) {
-      pushEdge(edges, seenEdgeIds, 'conflicts-with', clue.id, conflictId, entity.path);
-    }
+function deriveChapterOutlineSceneEdges(
+  scene: ChapterOutline['sceneSkeleton'][number],
+  entityPath: string,
+  edges: GraphEdge[],
+  seenEdgeIds: Set<string>,
+): void {
+  pushEdge(edges, seenEdgeIds, 'located-in', scene.id, scene.locationId, entityPath);
+  for (const characterId of scene.participantCharacterIds) {
+    pushEdge(edges, seenEdgeIds, 'knows', characterId, scene.id, entityPath);
+  }
+}
+
+function deriveChapterOutlineEdges(
+  outline: ChapterOutline,
+  chapterNodeId: string,
+  entityPath: string,
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  seenEdgeIds: Set<string>,
+): void {
+  linkClueIds(edges, seenEdgeIds, chapterNodeId, outline.introduceClueIds ?? [], 'introduces', entityPath);
+  linkClueIds(edges, seenEdgeIds, chapterNodeId, outline.activeClueIds ?? [], 'advances', entityPath);
+  linkClueIds(edges, seenEdgeIds, chapterNodeId, outline.resolveClueIds ?? [], 'resolves', entityPath);
+  for (const scene of outline.sceneSkeleton) {
+    pushNode(nodes, {
+      id: scene.id,
+      kind: 'Scene',
+      label: scene.purpose,
+      sourceRef: entityPath,
+      canonicalKind: 'chapter-outline',
+    });
+    deriveChapterOutlineSceneEdges(scene, entityPath, edges, seenEdgeIds);
+  }
+}
+
+function linkClueIds(
+  edges: GraphEdge[],
+  seenEdgeIds: Set<string>,
+  chapterNodeId: string,
+  clueIds: readonly string[],
+  relation: 'introduces' | 'advances' | 'resolves',
+  entityPath: string,
+): void {
+  for (const clueId of clueIds) {
+    pushEdge(edges, seenEdgeIds, relation, chapterNodeId, clueId, entityPath);
   }
 }
 
@@ -205,30 +261,7 @@ function deriveChapterOutlineNodesAndEdges(
       sourceRef: entity.path,
       canonicalKind: 'chapter-outline',
     });
-
-    for (const clueId of outline.introduceClueIds ?? []) {
-      pushEdge(edges, seenEdgeIds, 'introduces', chapterNodeId, clueId, entity.path);
-    }
-    for (const clueId of outline.activeClueIds ?? []) {
-      pushEdge(edges, seenEdgeIds, 'advances', chapterNodeId, clueId, entity.path);
-    }
-    for (const clueId of outline.resolveClueIds ?? []) {
-      pushEdge(edges, seenEdgeIds, 'resolves', chapterNodeId, clueId, entity.path);
-    }
-
-    for (const scene of outline.sceneSkeleton) {
-      pushNode(nodes, {
-        id: scene.id,
-        kind: 'Scene',
-        label: scene.purpose,
-        sourceRef: entity.path,
-        canonicalKind: 'chapter-outline',
-      });
-      pushEdge(edges, seenEdgeIds, 'located-in', scene.id, scene.locationId, entity.path);
-      for (const characterId of scene.participantCharacterIds) {
-        pushEdge(edges, seenEdgeIds, 'knows', characterId, scene.id, entity.path);
-      }
-    }
+    deriveChapterOutlineEdges(outline, chapterNodeId, entity.path, nodes, edges, seenEdgeIds);
   }
 }
 

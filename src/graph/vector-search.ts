@@ -66,6 +66,30 @@ export async function writeEmbedding(documentId: string, embedding: readonly num
  * @param queryEmbedding  Float32 array of length `EMBEDDING_DIMENSION`.
  * @param options         Workspace scope and optional filters.
  */
+function clampVectorSearchLimit(limit: number | undefined): number {
+  return Math.max(1, Math.floor(limit ?? 10));
+}
+
+function buildVectorSearchFilters(options: VectorSearchOptions): { readonly whereClause: string; readonly params: unknown[] } {
+  const clauses = ['"workspaceId" = $2', 'embedded = true'];
+  const params: unknown[] = [options.workspaceId];
+
+  if (options.bookId !== undefined) {
+    params.push(options.bookId);
+    clauses.push(`"bookId" = $${params.length}`);
+  }
+
+  if (options.kinds !== undefined && options.kinds.length > 0) {
+    params.push(options.kinds);
+    clauses.push(`kind = ANY($${params.length}::text[])`);
+  }
+
+  return {
+    whereClause: clauses.join(' AND '),
+    params,
+  };
+}
+
 export async function vectorSearch(
   queryEmbedding: readonly number[],
   options: VectorSearchOptions,
@@ -76,29 +100,10 @@ export async function vectorSearch(
     );
   }
 
-  // Validate and clamp limit to a safe positive integer so it can be
-  // interpolated directly into the SQL LIMIT clause without risk of
-  // invalid SQL or unexpected behaviour from caller-supplied values.
-  const limit = Math.max(1, Math.floor(options.limit ?? 10));
-
+  const limit = clampVectorSearchLimit(options.limit);
   const vectorLiteral = `[${queryEmbedding.join(',')}]`;
-
-  // Build WHERE clause and parameter list dynamically to avoid duplicating
-  // the filter logic across multiple query branches.
-  const whereClauses: string[] = ['"workspaceId" = $2', 'embedded = true'];
-  const params: unknown[] = [vectorLiteral, options.workspaceId];
-
-  if (options.bookId !== undefined) {
-    params.push(options.bookId);
-    whereClauses.push(`"bookId" = $${params.length}`);
-  }
-
-  if (options.kinds !== undefined && options.kinds.length > 0) {
-    params.push(options.kinds);
-    whereClauses.push(`kind = ANY($${params.length}::text[])`);
-  }
-
-  const whereClause = whereClauses.join(' AND ');
+  const { whereClause, params } = buildVectorSearchFilters(options);
+  const queryParams = [vectorLiteral, ...params];
 
   const rows = await prisma.$queryRawUnsafe<VectorSearchResult[]>(
     `SELECT "documentId", "nodeId", kind, "sourceRef", text,
@@ -107,7 +112,7 @@ export async function vectorSearch(
      WHERE ${whereClause}
      ORDER BY embedding <=> $1::vector
      LIMIT ${limit}`,
-    ...params,
+    ...queryParams,
   );
   return rows;
 }

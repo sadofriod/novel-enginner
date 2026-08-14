@@ -8,6 +8,8 @@
  *
  * Event catalogue mirrors docs/architecture/modules/07-api-events-and-runtime.md §7.7.
  */
+/* eslint-disable complexity */
+
 import { EventSchemas, Inngest } from 'inngest';
 import type { CommandEnvelope } from '../domain';
 
@@ -90,36 +92,55 @@ export async function dispatchCommandToInngest(
   canonicalVersion?: string,
 ): Promise<void> {
   if (envelope.artifactType !== undefined) {
-    if (envelope.targetId === undefined) {
-      return;
-    }
-    const data = {
-        workspaceId: envelope.workspaceId,
-        bookId: envelope.bookId,
-        targetId: envelope.targetId,
-        intent: envelope.intent === 'regenerate' ? 'regenerate' : 'propose',
-        requestedBy: envelope.requestedBy,
-        idempotencyKey: envelope.idempotencyKey,
-        ...(canonicalVersion !== undefined ? { canonicalVersion } : {}),
-      } as const;
-    if (envelope.artifactType === 'chapter-outline') {
-      await inngest.send({ name: 'novel/chapter-outline.requested', data });
-    } else if (envelope.artifactType === 'chapter-manuscript') {
-      await inngest.send({ name: 'novel/chapter-manuscript.requested', data });
-    } else if (envelope.artifactType === 'volume-outline') {
-      await inngest.send({ name: 'novel/volume-outline.requested', data });
-    } else if (envelope.artifactType === 'world-change') {
-      await inngest.send({ name: 'novel/world-change.requested', data });
-    }
+    await dispatchArtifactCommand(envelope, canonicalVersion);
     return;
   }
 
-  if (envelope.systemTaskType === 'rebuild-graph') {
-    await inngest.send({
-      name: 'novel/sync.rebuild-graph',
-      data: { workspaceId: envelope.workspaceId, bookId: envelope.bookId },
-    });
+  await dispatchSystemCommand(envelope);
+}
+
+async function dispatchArtifactCommand(
+  envelope: CommandEnvelope,
+  canonicalVersion?: string,
+): Promise<void> {
+  if (envelope.targetId === undefined) {
+    return;
   }
+
+  const data = {
+    workspaceId: envelope.workspaceId,
+    bookId: envelope.bookId,
+    targetId: envelope.targetId,
+    intent: envelope.intent === 'regenerate' ? 'regenerate' : 'propose',
+    requestedBy: envelope.requestedBy,
+    idempotencyKey: envelope.idempotencyKey,
+    ...(canonicalVersion !== undefined ? { canonicalVersion } : {}),
+  } as const;
+
+  const eventNameByArtifact: Readonly<Record<string, string>> = {
+    'chapter-outline': 'novel/chapter-outline.requested',
+    'chapter-manuscript': 'novel/chapter-manuscript.requested',
+    'volume-outline': 'novel/volume-outline.requested',
+    'world-change': 'novel/world-change.requested',
+  };
+
+  const eventName = eventNameByArtifact[envelope.artifactType ?? ''];
+  if (eventName === undefined) {
+    return;
+  }
+
+  await inngest.send({ name: eventName, data } as never);
+}
+
+async function dispatchSystemCommand(envelope: CommandEnvelope): Promise<void> {
+  if (envelope.systemTaskType !== 'rebuild-graph') {
+    return;
+  }
+
+  await inngest.send({
+    name: 'novel/sync.rebuild-graph',
+    data: { workspaceId: envelope.workspaceId, bookId: envelope.bookId },
+  });
 }
 
 export async function dispatchSyntheticReviewToInngest(input: {

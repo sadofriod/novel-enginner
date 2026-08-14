@@ -11,6 +11,7 @@ export const BOOTSTRAP_SESSION_STATUS_VALUES = [
   'abandoned',
   'failed',
 ] as const;
+export const BOOTSTRAP_STATUS_VALUES = BOOTSTRAP_SESSION_STATUS_VALUES;
 export type BootstrapSessionStatus = (typeof BOOTSTRAP_SESSION_STATUS_VALUES)[number];
 
 export const NEW_BOOK_STAGE_VALUES = [
@@ -32,7 +33,10 @@ export const IMPORT_STAGE_VALUES = [
 ] as const;
 export type ImportStage = (typeof IMPORT_STAGE_VALUES)[number];
 
+export const BOOTSTRAP_STAGE_VALUES = [...NEW_BOOK_STAGE_VALUES, ...IMPORT_STAGE_VALUES] as const;
 export type BootstrapStage = NewBookStage | ImportStage;
+
+export const LICENSE_SCOPE_VALUES = ['permissive', 'attribution-required', 'restricted', 'copyrighted'] as const;
 
 export interface BootstrapSession {
   readonly id: string;

@@ -315,10 +315,3 @@
 10. `knowledgeLedger`、`displayTitle`、`PlanningAnchor`、scene anchors 全部能被解析、持久化并在 API 摘要中返回。
 11. 新书 bootstrap 在第五轮后创建可审批的 `project-brief`，确认前可恢复且不写 canonical；确认后按世界观、蓝图、卷纲和首批细纲推进到 `ready-to-write`。
 12. 导入会话在映射确认前不写 canonical，确认后复制规范化内容、隔离未识别资料并生成健康报告；原目录变化只有显式重新导入才能回流。
-
-## 10.13 推荐实施顺序
-
-1. 在 Phase 1 启动 Bootstrap 跨阶段工作流：先落类型与 canonical 契约，再完成“最后有效快照 + 自动 `re-sync-state` + invalid 阻断”的本地核心循环。
-2. 再完成 Phase 4-6，把 proposal、workflow、approval、commit-blocked 语义真正跑通。
-3. 然后完成 Phase 7-9，把 Agent、Reviewer、Web 与 graph/search 接到这条稳定主干上。
-4. 最后用 Phase 10 的验收矩阵做端到端收口，而不是边做边放宽状态语义。

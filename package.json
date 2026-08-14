@@ -7,7 +7,8 @@
     "dev": "bun run src/runtime/server.ts",
     "start": "bun run src/runtime/server.ts",
     "cli": "bun run src/runtime/cli.ts",
-    "test": "bun test",
+    "test": "bun test src",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
@@ -31,6 +32,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
+    "@playwright/test": "^1.62.1",
     "@types/bun": "latest",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

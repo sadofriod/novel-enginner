@@ -2,7 +2,9 @@
 
 Novel Enginner 是一个以 Markdown canonical state 为基础的小说创作控制面。Bun 提供本地 HTTP API 和 CLI，PostgreSQL + pgvector 保存运行时与派生数据，提案经过审批后才进入 canonical 内容。
 
-当前仓库已提供 API handler、CLI、持久化和 workflow 适配层。本文只记录当前代码可以实际执行的启动与使用方式。
+当前仓库已提供 API handler、CLI、持久化、workflow 适配层和本地 Web 控制台。本文只记录当前代码可以实际执行的启动与使用方式。
+
+- 面向作者/审核者的使用说明请看：[docs/user-guide.md](./docs/user-guide.md)
 
 ## 环境要求
 

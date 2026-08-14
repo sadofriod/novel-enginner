@@ -2,8 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { ArtifactSummary, RunRecord } from '../runtime/store';
 import { ApiClient } from './api-client';
+import { DerivedGraphView } from './app/components/DerivedGraphView';
 import { ApprovalQueue } from './components/ApprovalQueue';
 import { ArtifactDetail, type ApprovalAction } from './components/ArtifactDetail';
+import { BundledDiffView } from './components/BundledDiffView';
+import { ProposalDiffView } from './components/ProposalDiffView';
+import { ReviewerResultView } from './components/ReviewerResultView';
 
 export interface ControlConsoleProps {
   readonly artifacts?: readonly ArtifactSummary[];
@@ -18,7 +22,7 @@ export interface ControlConsoleProps {
 
 export interface RunTracePanelProps {
   readonly runs?: readonly RunRecord[];
-  readonly selectedArtifact?: ArtifactSummary;
+  readonly selectedArtifact?: ArtifactSummary | undefined;
 }
 
 export function RunTracePanel({ runs = [], selectedArtifact }: RunTracePanelProps) {
@@ -201,7 +205,23 @@ export function ControlConsole({
         {selected === undefined ? (
           <p>暂无可审批工件。</p>
         ) : (
-          <ArtifactDetail artifact={selected} onAction={handleAction} pending={selected.proposalStatus === 'commit-blocked' || selected.proposalStatus === 'waiting-sync'} />
+          <div className="control-console-detail-stack">
+            <ArtifactDetail artifact={selected} onAction={handleAction} pending={selected.proposalStatus === 'commit-blocked' || selected.proposalStatus === 'waiting-sync'} />
+            <ProposalDiffView
+              proposalId={selected.activeProposalId ?? 'proposal-missing'}
+              artifactType={selected.artifactType}
+              targetId={selected.targetId}
+              basedOnCanonicalVersion={selected.proposalDetail?.basedOnCanonicalVersion ?? 'unknown'}
+              diffs={selected.proposalDetail?.diffs ?? []}
+              entityVersionRefs={selected.proposalDetail?.entityVersionRefs}
+            />
+            <BundledDiffView
+              proposalId={selected.activeProposalId ?? 'proposal-missing'}
+              entries={selected.bundledDiff ?? []}
+            />
+            {selected.reviewerResult !== undefined && <ReviewerResultView result={selected.reviewerResult} />}
+            <DerivedGraphView graph={selected.derivedGraph} />
+          </div>
         )}
       </main>
 

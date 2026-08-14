@@ -14,6 +14,45 @@ const artifact: ArtifactSummary = {
   activeProposalId: 'prop-1',
   proposalStatus: 'commit-blocked',
   updatedAt: '2026-08-13T00:00:00.000Z',
+  proposalDetail: {
+    basedOnCanonicalVersion: 'snap-1',
+    diffs: [{ field: 'displayTitle', canonical: '旧标题', proposed: '新标题', changed: true }],
+  },
+  bundledDiff: [
+    {
+      artifactType: 'character-update',
+      targetId: 'char-1',
+      changeKind: 'update',
+      summary: '更新角色状态',
+    },
+  ],
+  reviewerResult: {
+    approved: true,
+    totalScore: 91,
+    overrideEligible: false,
+    hardFailures: [],
+    dimensionScores: {
+      antiAiVoice: 90,
+      webFictionPacing: 90,
+      emotionCurve: 90,
+      characterConsistency: 92,
+      settingConsistency: 91,
+      clueCausality: 90,
+      readabilityLayout: 89,
+      languageTexture: 93,
+    },
+    rewriteDirectives: ['保持节奏'],
+  },
+  derivedGraph: {
+    status: 'ready',
+    latestCanonicalVersion: 'snap-1',
+    graphSnapshotVersion: 'graph-1',
+    nodes: [
+      { id: 'chapter-1', label: '第一章', type: 'Chapter' },
+      { id: 'char-1', label: '主角', type: 'Character' },
+    ],
+    edges: [{ source: 'chapter-1', target: 'char-1', type: 'introduces' }],
+  },
 };
 
 const runs: readonly RunRecord[] = [
@@ -57,6 +96,9 @@ describe('ControlConsole', () => {
     expect(html).toContain('任务 / 审批队列');
     expect(html).toContain('运行追溯');
     expect(html).toContain('批准但未落盘');
+    expect(html).toContain('Proposal 差异视图');
+    expect(html).toContain('Reviewer 结果');
+    expect(html).toContain('剧情图谱 / 派生状态');
   });
 
   test('RunTracePanel filters by selected artifact', () => {

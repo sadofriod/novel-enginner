@@ -1,3 +1,5 @@
+/* eslint-disable complexity */
+
 /**
  * Prisma-backed CRUD operations for the runtime/audit persistence layer.
  * (docs/architecture/modules/07-api-events-and-runtime.md §7.8,
@@ -7,6 +9,7 @@
  * duplicated here. Only the runtime/audit layer (proposals, runs, reviewer results,
  * override audits, capability snapshots) is persisted via Prisma.
  */
+import { Prisma } from '@prisma/client';
 import type { Proposal, ReviewerResult, OverrideAudit, CapabilityRegistrationState } from '../domain';
 import type { ProposalArtifactType } from '../domain/values';
 import type { CommandRecord, RunRecord } from '../runtime/store';
@@ -20,6 +23,10 @@ import {
   toReviewerResultCreateInput,
   type ProposalRow,
 } from './mappers';
+
+function toPrismaJsonInput(value: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull {
+  return value === null ? Prisma.JsonNull : value as Prisma.InputJsonValue;
+}
 
 export async function persistCommand(
   workspaceId: string,
@@ -67,8 +74,96 @@ export async function persistRun(
     },
     update: {
       status: run.status,
+      nextExpectedState: run.nextExpectedState,
+      ...(run.artifactType !== undefined ? { artifactType: run.artifactType } : {}),
+      ...(run.targetId !== undefined ? { targetId: run.targetId } : {}),
+      ...(basedOnCanonicalVersion !== undefined ? { basedOnCanonicalVersion } : {}),
     },
   });
+}
+
+export async function updatePersistedRunStatus(input: {
+  readonly runId: string;
+  readonly status: string;
+  readonly nextExpectedState: string;
+  readonly driftReason?: string;
+}): Promise<void> {
+  await prisma.run.update({
+    where: { runId: input.runId },
+    data: {
+      status: input.status,
+      nextExpectedState: input.nextExpectedState,
+      ...(input.driftReason !== undefined ? { driftReason: input.driftReason } : {}),
+      ...(input.status === 'completed' || input.status === 'aborted' || input.status === 'external-failed'
+        ? { completedAt: new Date() }
+        : {}),
+    },
+  });
+}
+
+export interface PersistRunStepInput {
+  readonly runId: string;
+  readonly stepKey: string;
+  readonly sequence: number;
+  readonly status: string;
+  readonly isCheckpoint?: boolean;
+  readonly input?: unknown;
+  readonly output?: unknown;
+  readonly errorReason?: string;
+  readonly completedAt?: Date;
+}
+
+export async function persistRunStep(input: PersistRunStepInput): Promise<void> {
+  await prisma.runStep.upsert({
+    where: { runId_sequence: { runId: input.runId, sequence: input.sequence } },
+    create: {
+      runId: input.runId,
+      stepKey: input.stepKey,
+      sequence: input.sequence,
+      status: input.status,
+      isCheckpoint: input.isCheckpoint ?? false,
+      ...(input.input !== undefined ? { input: toPrismaJsonInput(input.input) } : {}),
+      ...(input.output !== undefined ? { output: toPrismaJsonInput(input.output) } : {}),
+      ...(input.errorReason !== undefined ? { errorReason: input.errorReason } : {}),
+      ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
+    },
+    update: {
+      stepKey: input.stepKey,
+      status: input.status,
+      isCheckpoint: input.isCheckpoint ?? false,
+      ...(input.input !== undefined ? { input: toPrismaJsonInput(input.input) } : {}),
+      ...(input.output !== undefined ? { output: toPrismaJsonInput(input.output) } : {}),
+      ...(input.errorReason !== undefined ? { errorReason: input.errorReason } : {}),
+      ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
+    },
+  });
+}
+
+export interface PersistedRunStep {
+  readonly runId: string;
+  readonly stepKey: string;
+  readonly sequence: number;
+  readonly status: string;
+  readonly isCheckpoint: boolean;
+  readonly input: unknown;
+  readonly output: unknown;
+  readonly errorReason?: string;
+  readonly completedAt?: string;
+}
+
+export async function listPersistedRunSteps(runId: string): Promise<readonly PersistedRunStep[]> {
+  const rows = await prisma.runStep.findMany({ where: { runId }, orderBy: { sequence: 'asc' } });
+  return rows.map((row) => ({
+    runId: row.runId,
+    stepKey: row.stepKey,
+    sequence: row.sequence,
+    status: row.status,
+    isCheckpoint: row.isCheckpoint,
+    input: row.input,
+    output: row.output,
+    ...(row.errorReason !== null ? { errorReason: row.errorReason } : {}),
+    ...(row.completedAt !== null ? { completedAt: row.completedAt.toISOString() } : {}),
+  }));
 }
 
 export async function findPersistedRun(runId: string): Promise<RunRecord | undefined> {
@@ -76,9 +171,10 @@ export async function findPersistedRun(runId: string): Promise<RunRecord | undef
   if (row === null) {
     return undefined;
   }
+  const command = await prisma.command.findUnique({ where: { runId } });
   return {
     runId: row.runId,
-    commandId: '',
+    commandId: command?.commandId ?? '',
     workspaceId: row.workspaceId,
     bookId: row.bookId,
     ...(row.artifactType !== null
@@ -210,6 +306,21 @@ export async function persistOverrideAudit(
   });
 }
 
+export async function findOverrideAudit(overrideAuditId: string): Promise<OverrideAudit | undefined> {
+  const row = await prisma.overrideAudit.findUnique({ where: { overrideAuditId } });
+  if (row === null) {
+    return undefined;
+  }
+  return {
+    overrideReason: row.overrideReason,
+    overrideBy: row.overrideBy,
+    relatedRunId: row.relatedRunId,
+    failedChecks: row.failedChecks as unknown as OverrideAudit['failedChecks'],
+    scoreSnapshot: row.scoreSnapshot as unknown as OverrideAudit['scoreSnapshot'],
+    timestamp: row.timestamp.toISOString(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Capability discovery snapshots
 // ---------------------------------------------------------------------------
@@ -275,5 +386,40 @@ export async function persistSyntheticCommit(input: SyntheticCommitInput): Promi
       message: input.message,
     },
     update: {},
+  });
+}
+
+export interface DerivedRebuildJobInput {
+  readonly jobId: string;
+  readonly workspaceId: string;
+  readonly bookId: string;
+  readonly jobType: string;
+  readonly status: string;
+  readonly triggeredBy?: string;
+  readonly runId?: string;
+  readonly errorReason?: string;
+}
+
+export async function persistDerivedRebuildJob(input: DerivedRebuildJobInput): Promise<void> {
+  await prisma.derivedRebuildJob.upsert({
+    where: { jobId: input.jobId },
+    create: {
+      jobId: input.jobId,
+      workspaceId: input.workspaceId,
+      bookId: input.bookId,
+      jobType: input.jobType,
+      status: input.status,
+      ...(input.triggeredBy !== undefined ? { triggeredBy: input.triggeredBy } : {}),
+      ...(input.runId !== undefined ? { runId: input.runId } : {}),
+      ...(input.errorReason !== undefined ? { errorReason: input.errorReason } : {}),
+      ...(input.status === 'running' ? { startedAt: new Date() } : {}),
+      ...(input.status === 'completed' || input.status === 'failed' ? { completedAt: new Date() } : {}),
+    },
+    update: {
+      status: input.status,
+      ...(input.errorReason !== undefined ? { errorReason: input.errorReason } : {}),
+      ...(input.status === 'running' ? { startedAt: new Date() } : {}),
+      ...(input.status === 'completed' || input.status === 'failed' ? { completedAt: new Date() } : {}),
+    },
   });
 }

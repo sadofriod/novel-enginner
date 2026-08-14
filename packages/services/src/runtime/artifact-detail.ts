@@ -1,4 +1,4 @@
-import type { ReviewerResult, StableId } from '../domain/schema';
+import type { OverrideAudit, ReviewerResult, StableId } from '../domain/schema';
 
 export interface ArtifactEntityVersionRef {
   readonly entityId: StableId;
@@ -52,4 +52,5 @@ export interface ArtifactDetailState {
   readonly reviewerResult?: ReviewerResult;
   readonly derivedGraph?: ArtifactDerivedGraph;
   readonly inlineEditNote?: string;
+  readonly overrideAudit?: OverrideAudit;
 }

@@ -2,6 +2,8 @@
 
 ## 4.1 主流程概览
 
+以下流程以已初始化书籍为前提。新书与导入先进入 bootstrap 工作流：新书经市场研究、五轮灵感对话、`project-brief`、`world-foundation`、`story-blueprint`、分卷与首批细纲到达 `ready-to-write`；导入经扫描、映射、确认和健康报告到达同一状态。完整状态机与工程边界见 11。
+
 ```mermaid
 sequenceDiagram
   participant Author as Author/Web/VS Code
@@ -133,6 +135,7 @@ sequenceDiagram
 - 不允许跳过核心 Agent 继续提交 canonical 状态。
 - 作者手工改 canonical 后，`re-sync-state` 也要形成一条可审计的合成提交记录。
 - 如果 run 执行期间产生了新的 canonical 快照，所有写相关、会产出 proposal 的活动 run 必须自动中止，并记录 drift 原因；它们不会自动重启。
+- bootstrap session 的研究、对话、映射与阶段草稿可恢复或显式丢弃，但在对应 proposal 获批前不是 canonical 状态。
 
 ## 4.6 并发规则
 

@@ -13,9 +13,13 @@ import {
   findPersistedRun,
   persistCommand,
   persistRun,
+  persistDerivedRebuildJob,
+  findOverrideAudit,
+  updatePersistedRunStatus,
 } from '../persistence/operations';
 import type { CommandRecord, RunRecord } from './store';
 import { applyProposalCommand } from '../workflow/command-lifecycle';
+import { buildDerivedGraph } from '../graph/derive';
 import { handleHandEditedArtifact } from '../agent/synthetic-review';
 import { resolveLayoutRuleForPath } from '../workspace/layout';
 import { RunEventBus } from './event-bus';
@@ -93,7 +97,7 @@ function createPersistAcceptedCommand(
   persistAcceptedCommand: CreateApiServerOptions['persistAcceptedCommand'],
 ): ((envelope: CommandEnvelope, command: CommandRecord, run: RunRecord) => Promise<void>) | undefined {
   return persistAcceptedCommand
-    ?? (process.env['DATABASE_URL'] !== undefined
+    ?? (process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test'
       ? async (envelope: CommandEnvelope, command: CommandRecord, run: RunRecord): Promise<void> => {
           await persistCommand(envelope.workspaceId, envelope.bookId, command);
           await persistRun(run, envelope.intent, envelope.requestedBy, envelope.idempotencyKey);
@@ -105,7 +109,7 @@ function createLoadPersistedCommand(
   loadPersistedCommand: CreateApiServerOptions['loadPersistedCommand'],
 ): ((workspaceId: string, idempotencyKey: string) => Promise<{ readonly command: CommandRecord; readonly run?: RunRecord } | undefined>) | undefined {
   return loadPersistedCommand
-    ?? (process.env['DATABASE_URL'] !== undefined
+    ?? (process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test'
       ? async (workspaceId: string, idempotencyKey: string): Promise<{ readonly command: CommandRecord; readonly run?: RunRecord } | undefined> => {
           const command = await findPersistedCommandByIdempotencyKey(workspaceId, idempotencyKey);
           if (command === undefined) {
@@ -124,7 +128,7 @@ function createDispatchCommand(
     ?? (process.env['INNGEST_EVENT_KEY'] !== undefined
       ? async (envelope: CommandEnvelope, _run: RunRecord, canonicalVersion?: string): Promise<void> => {
           const { dispatchCommandToInngest } = await import('../workflow/inngest-client');
-          await dispatchCommandToInngest(envelope, canonicalVersion);
+          await dispatchCommandToInngest(envelope, canonicalVersion, _run.runId);
         }
       : undefined);
 }
@@ -231,6 +235,7 @@ async function finalizeAcceptedCommand(
   if (command !== undefined && run !== undefined && persistAcceptedCommand !== undefined) {
     await persistAcceptedCommand(validation.envelope, command, run);
   }
+  await persistControlledRunStatus(validation.envelope, store);
 
   syncArtifactSummary(store, eventBus, validation.envelope, result, getWorkspaceValidity);
   await applyPersistedProposalDecision({
@@ -247,18 +252,96 @@ async function finalizeAcceptedCommand(
   }
 }
 
+async function persistControlledRunStatus(envelope: CommandEnvelope, store: RuntimeStore): Promise<void> {
+  if (process.env['DATABASE_URL'] === undefined || process.env['NODE_ENV'] === 'test' || envelope.targetId === undefined) {
+    return;
+  }
+  const nextStateByIntent: Readonly<Record<string, { readonly status: string; readonly nextExpectedState: string }>> = {
+    'retry-step': { status: 'running', nextExpectedState: 'run-resumed' },
+    'resume-run': { status: 'running', nextExpectedState: 'run-resumed' },
+    'abort-run': { status: 'aborted', nextExpectedState: 'run-aborted' },
+    'mark-external-failure': { status: 'external-failed', nextExpectedState: 'run-aborted' },
+  };
+  const transition = nextStateByIntent[envelope.intent];
+  const run = store.getRun(envelope.targetId);
+  if (transition === undefined || run === undefined) {
+    return;
+  }
+  await updatePersistedRunStatus({
+    runId: run.runId,
+    status: transition.status,
+    nextExpectedState: transition.nextExpectedState,
+  });
+}
+
 async function handleSyncRebuildGraph(
   body: Record<string, unknown>,
   result: CommandResult,
   store: RuntimeStore,
+  eventBus: RunEventBus,
   options: CreateApiServerOptions,
 ): Promise<Response> {
-  if (result.status === 'accepted' && options.onRebuildGraph !== undefined) {
+  if (result.status === 'accepted') {
     const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : 'default';
     const bookId = typeof body['bookId'] === 'string' ? body['bookId'] : 'book-unknown';
     const snapshot = store.getLastKnownSnapshot(workspaceId);
     if (snapshot !== undefined) {
-      await options.onRebuildGraph(workspaceId, bookId, snapshot);
+      const jobId = `derived-rebuild-${result.runId}`;
+      if (process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test') {
+        await persistDerivedRebuildJob({
+          jobId,
+          workspaceId,
+          bookId,
+          jobType: 'graph-search-embedding',
+          status: 'running',
+          triggeredBy: 'rebuild-graph',
+          runId: result.runId,
+        });
+      }
+      try {
+        const derivedGraph = buildDerivedGraph(snapshot);
+        if (options.onRebuildGraph !== undefined) {
+          await options.onRebuildGraph(workspaceId, bookId, snapshot);
+        } else if (process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test') {
+          const { rebuildDerivedSearchIndex } = await import('../graph/embedding-dispatch');
+          await rebuildDerivedSearchIndex(snapshot, { workspaceId, bookId });
+        }
+        store.setDerivedGraph(derivedGraph);
+        eventBus.publish({
+          type: 'derived.ready',
+          runId: result.runId,
+          emittedAt: new Date().toISOString(),
+          data: {
+            snapshotId: derivedGraph.builtFromSnapshotId,
+            nodeCount: derivedGraph.nodes.length,
+            edgeCount: derivedGraph.edges.length,
+            documentCount: derivedGraph.searchDocuments.length,
+          },
+        });
+        if (process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test') {
+          await persistDerivedRebuildJob({
+            jobId,
+            workspaceId,
+            bookId,
+            jobType: 'graph-search-embedding',
+            status: 'completed',
+            runId: result.runId,
+          });
+        }
+      } catch (cause) {
+        if (process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test') {
+          await persistDerivedRebuildJob({
+            jobId,
+            workspaceId,
+            bookId,
+            jobType: 'graph-search-embedding',
+            status: 'failed',
+            runId: result.runId,
+            errorReason: cause instanceof Error ? cause.message : String(cause),
+          });
+        }
+        throw cause;
+      }
     }
   }
   return jsonResponse(result, result.status === 'accepted' ? 202 : 400);
@@ -290,6 +373,7 @@ async function handleReSyncState(
   const session = store.getOrCreateSyncSession(workspaceId);
   const sessionState = session.applySave(files);
   store.setLastKnownSnapshot(workspaceId, sessionState.snapshot);
+  store.setWorkspaceValidity(workspaceId, sessionState.validity);
 
   await maybeDispatchSyntheticReviews({
     body,
@@ -427,7 +511,8 @@ async function applyPersistedProposalDecision({
     return;
   }
 
-  const proposal = process.env['DATABASE_URL'] === undefined
+  const persistenceEnabled = process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test';
+  const proposal = !persistenceEnabled
     ? undefined
     : await findActiveProposalForTarget(envelope.workspaceId, envelope.artifactType, envelope.targetId);
   const snapshot = store.getLastKnownSnapshot(envelope.workspaceId);
@@ -457,7 +542,7 @@ async function applyPersistedProposalDecision({
     return;
   }
 
-  if (process.env['DATABASE_URL'] !== undefined) {
+  if (persistenceEnabled) {
     const { persistProposal } = await import('../persistence/operations');
     await persistProposal(envelope.workspaceId, envelope.bookId, decision.proposal);
   }
@@ -528,7 +613,7 @@ function syncArtifactSummary(
 export function createApiServer(options: CreateApiServerOptions = {}) {
   const store = options.store ?? new RuntimeStore();
   const eventBus = options.eventBus ?? new RunEventBus();
-  const getWorkspaceValidity = options.getWorkspaceValidity ?? (() => 'clean' as WorkspaceValidity);
+  const getWorkspaceValidity = options.getWorkspaceValidity ?? ((workspaceId: string) => store.getWorkspaceValidity(workspaceId));
   const persistAcceptedCommand = createPersistAcceptedCommand(options.persistAcceptedCommand);
   const loadPersistedCommand = createLoadPersistedCommand(options.loadPersistedCommand);
   const dispatchCommand = createDispatchCommand(options.dispatchCommand);
@@ -546,6 +631,7 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
     handleListArtifacts,
     handleGetRun,
     handleGetArtifact,
+    handleGetOverrideAudit,
     handleRunStream,
     handleSyncCommand,
   };
@@ -683,6 +769,16 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
     return jsonResponse(artifact);
   }
 
+  async function handleGetOverrideAudit(overrideAuditId: string): Promise<Response> {
+    if (process.env['DATABASE_URL'] === undefined || process.env['NODE_ENV'] === 'test') {
+      return jsonResponse({ status: 'rejected', code: 'not-found', message: 'Override audit persistence is unavailable.' }, 404);
+    }
+    const audit = await findOverrideAudit(overrideAuditId);
+    return audit === undefined
+      ? jsonResponse({ status: 'rejected', code: 'not-found', message: 'Unknown override audit.' }, 404)
+      : jsonResponse(audit);
+  }
+
   function handleRunStream(runId: string, request: Request): Response {
     const encoder = new TextEncoder();
     const lastEventIdHeader = request.headers.get('last-event-id');
@@ -737,7 +833,7 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
 
     const payload = { ...body, intent: syncIntent, systemTaskType: syncIntent };
     const result = handleCommand(payload, { store, eventBus, getWorkspaceValidity });
-    return handleSyncRebuildGraph(body, result, store, options);
+    return handleSyncRebuildGraph(body, result, store, eventBus, options);
   }
 
   return { fetch, store, eventBus };

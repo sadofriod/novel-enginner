@@ -90,7 +90,7 @@ export const chapterOutlineFunction = inngest.createFunction(
   },
   { event: 'novel/chapter-outline.requested' },
   async ({ event, step }) => {
-    const { workspaceId, bookId, targetId, intent } = event.data;
+    const { workspaceId, bookId, targetId, intent, runId } = event.data;
 
     // Step 1: re-sync canonical state before any workflow work.
     await step.run('re-sync-state', async () => {
@@ -115,7 +115,7 @@ export const chapterOutlineFunction = inngest.createFunction(
         artifactType: 'chapter-outline',
         targetId,
         intent,
-        parentRunId: event.data.idempotencyKey,
+        parentRunId: runId,
         ...(event.data.canonicalVersion !== undefined ? { canonicalVersion: event.data.canonicalVersion } : {}),
       });
     });
@@ -177,7 +177,7 @@ export const chapterManuscriptFunction = inngest.createFunction(
   },
   { event: 'novel/chapter-manuscript.requested' },
   async ({ event, step }) => {
-    const { workspaceId, bookId, targetId, intent } = event.data;
+    const { workspaceId, bookId, targetId, intent, runId } = event.data;
 
     // Step 1: Verify the target outline is approved.
     const outlineCheck = await step.run('check-outline-approved', async () => {
@@ -207,7 +207,7 @@ export const chapterManuscriptFunction = inngest.createFunction(
         artifactType: 'chapter-manuscript',
         targetId,
         intent,
-        parentRunId: event.data.idempotencyKey,
+        parentRunId: runId,
         ...(event.data.canonicalVersion !== undefined ? { canonicalVersion: event.data.canonicalVersion } : {}),
       });
     });
@@ -287,7 +287,7 @@ export const volumeOutlineFunction = inngest.createFunction(
   },
   { event: 'novel/volume-outline.requested' },
   async ({ event, step }) => {
-    const { workspaceId, bookId, targetId, intent } = event.data;
+    const { workspaceId, bookId, targetId, intent, runId } = event.data;
 
     await step.run('re-sync-state', async () => {
       const response = await fetch(
@@ -310,7 +310,7 @@ export const volumeOutlineFunction = inngest.createFunction(
         artifactType: 'volume-outline',
         targetId,
         intent,
-        parentRunId: event.data.idempotencyKey,
+        parentRunId: runId,
         ...(event.data.canonicalVersion !== undefined ? { canonicalVersion: event.data.canonicalVersion } : {}),
       });
     });
@@ -349,7 +349,7 @@ export const worldChangeFunction = inngest.createFunction(
   },
   { event: 'novel/world-change.requested' },
   async ({ event, step }) => {
-    const { workspaceId, bookId, targetId, intent } = event.data;
+    const { workspaceId, bookId, targetId, intent, runId } = event.data;
 
     const proposalResult = await step.run('create-proposal', async () => {
       return createPersistedProposal({
@@ -358,7 +358,7 @@ export const worldChangeFunction = inngest.createFunction(
         artifactType: 'world-change',
         targetId,
         intent,
-        parentRunId: event.data.idempotencyKey,
+        parentRunId: runId,
         ...(event.data.canonicalVersion !== undefined ? { canonicalVersion: event.data.canonicalVersion } : {}),
       });
     });

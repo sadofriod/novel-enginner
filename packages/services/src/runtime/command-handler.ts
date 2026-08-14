@@ -202,10 +202,63 @@ export function handleCommand(payload: unknown, deps: HandleCommandDeps): Comman
   const acceptedAt = now.toISOString();
   const { commandRecord, runRecord } = buildAcceptedRecord(envelope, acceptedAt);
   recordAcceptedCommand(deps, commandRecord, runRecord, envelope.intent, acceptedAt);
+  applyRunControlIntent(envelope, deps.store, deps.eventBus, acceptedAt);
 
   return toAcceptedResponse(commandRecord, runRecord, envelope);
 }
 /* eslint-enable complexity */
+
+function applyRunControlIntent(
+  envelope: CommandEnvelope,
+  store: RuntimeStore,
+  eventBus: RunEventBus,
+  emittedAt: string,
+): void {
+  const controlledRunIntents: Readonly<Record<string, { readonly status: string; readonly nextState: string }>> = {
+    'retry-step': { status: 'running', nextState: 'run-resumed' },
+    'resume-run': { status: 'running', nextState: 'run-resumed' },
+    'abort-run': { status: 'aborted', nextState: 'run-aborted' },
+    'mark-external-failure': { status: 'external-failed', nextState: 'run-aborted' },
+  };
+  const transition = controlledRunIntents[envelope.intent];
+  if (transition === undefined || envelope.targetId === undefined) {
+    return;
+  }
+  const controlledRun = store.updateRunStatus(envelope.targetId, transition.status, transition.nextState);
+  if (controlledRun === undefined) {
+    eventBus.publish({
+      type: 'run.step.failed',
+      runId: envelope.targetId,
+      emittedAt,
+      data: { reason: `controlled run ${envelope.targetId} was not found` },
+    });
+    return;
+  }
+  publishRunControlEvent(eventBus, controlledRun.runId, envelope.intent, transition.status, emittedAt);
+}
+
+function publishRunControlEvent(
+  eventBus: RunEventBus,
+  runId: string,
+  intent: CommandIntent,
+  status: string,
+  emittedAt: string,
+): void {
+  const eventType = status === 'aborted'
+    ? 'run.aborted'
+    : status === 'external-failed'
+      ? 'external.failure'
+      : undefined;
+  if (eventType === undefined) {
+    return;
+  }
+  eventBus.publish({
+    type: eventType,
+    runId,
+    emittedAt,
+    data: { reason: `run control intent: ${intent}` },
+  });
+}
 
 function resolveEarlyCommandExit(
   validation: ReturnType<typeof validateCommandEnvelope>,

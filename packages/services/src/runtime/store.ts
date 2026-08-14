@@ -2,6 +2,7 @@ import type { ProposalArtifactType, SystemTaskType } from '../domain/values';
 import type { StableId } from '../domain/schema';
 import { WorkspaceSyncSession } from '../workspace/session';
 import type { ArtifactDetailState } from './artifact-detail';
+import type { DerivedGraph } from '../graph/types';
 
 export interface ArtifactSummary extends ArtifactDetailState {
   readonly artifactType: ProposalArtifactType;
@@ -58,6 +59,7 @@ export class RuntimeStore {
     import('../workspace/sync-engine').WorkspaceSnapshot
   >();
   private readonly syncSessionByWorkspaceId = new Map<string, WorkspaceSyncSession>();
+  private readonly workspaceValidityById = new Map<string, import('../domain/values').WorkspaceValidity>();
 
   findCommandByIdempotencyKey(idempotencyKey: string): CommandRecord | undefined {
     const commandId = this.commandIdByIdempotencyKey.get(idempotencyKey);
@@ -75,6 +77,16 @@ export class RuntimeStore {
 
   saveRun(record: RunRecord): void {
     this.runsById.set(record.runId, record);
+  }
+
+  updateRunStatus(runId: string, status: string, nextExpectedState: string): RunRecord | undefined {
+    const run = this.runsById.get(runId);
+    if (run === undefined) {
+      return undefined;
+    }
+    const updated = { ...run, status, nextExpectedState, updatedAt: new Date().toISOString() };
+    this.runsById.set(runId, updated);
+    return updated;
   }
 
   getRun(runId: string): RunRecord | undefined {
@@ -126,6 +138,27 @@ export class RuntimeStore {
     const session = new WorkspaceSyncSession(this.getLastKnownSnapshot(workspaceId));
     this.syncSessionByWorkspaceId.set(workspaceId, session);
     return session;
+  }
+
+  getWorkspaceValidity(workspaceId: string): import('../domain/values').WorkspaceValidity {
+    return this.workspaceValidityById.get(workspaceId) ?? 'clean';
+  }
+
+  setWorkspaceValidity(workspaceId: string, validity: import('../domain/values').WorkspaceValidity): void {
+    this.workspaceValidityById.set(workspaceId, validity);
+  }
+
+  setDerivedGraph(graph: DerivedGraph): void {
+    const derivedGraph = {
+      status: 'ready' as const,
+      latestCanonicalVersion: graph.builtFromSnapshotId,
+      graphSnapshotVersion: `graph-${graph.builtFromSnapshotId}`,
+      nodes: graph.nodes.map((node) => ({ id: node.id, label: node.label, type: node.kind })),
+      edges: graph.edges.map((edge) => ({ source: edge.sourceId, target: edge.targetId, type: edge.type })),
+    };
+    for (const artifact of this.artifactsByKey.values()) {
+      this.upsertArtifact({ ...artifact, derivedGraph, updatedAt: new Date().toISOString() });
+    }
   }
 }
 

@@ -106,6 +106,7 @@ V1 采用：`静态基线装配 + 任务级少量可选能力`。
 ### MCP 开放边界
 
 - `WorldBuilder`、`PlotPlanner`、`Reviewer` 默认只开放有限外部 MCP；V1 的默认外部能力范围为 `cloakbrowser`。
+- bootstrap 市场研究通过服务端 `MarketResearchPort` 使用 registry 已授权的 Browser MCP；前端不得直接拥有 MCP 调用权。研究步骤只输出清洗后的趋势简报和可审计来源证据，不将原始网页正文写入 canonical。
 - `Drafter` 默认不拥有广泛 MCP 访问权。
 - `Actor` 只读角色账本与相关上下文。
 

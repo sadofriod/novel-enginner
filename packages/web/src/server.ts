@@ -69,9 +69,14 @@ function resolveSelectedArtifact(
 async function proxyToService(request: Request, pathname: string): Promise<Response> {
   const targetUrl = new URL(pathname.replace(/^\/api/, ''), serviceUrl);
   targetUrl.search = new URL(request.url).search;
+  const headers = new Headers(request.headers);
+  headers.delete('connection');
+  headers.delete('content-length');
+  headers.delete('host');
   const requestInit: RequestInit = {
     method: request.method,
-    headers: request.headers,
+    headers,
+    redirect: 'manual',
   };
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     requestInit.body = await request.text();

@@ -11,7 +11,7 @@
     "start:web": "pnpm build:web && bun run packages/web/src/server.ts",
     "start": "pnpm dev",
     "cli": "bun run packages/services/src/runtime/cli.ts",
-    "test": "bun test packages",
+    "test": "NODE_ENV=test bun test packages",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "lint": "eslint packages",

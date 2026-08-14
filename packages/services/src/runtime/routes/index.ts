@@ -2,6 +2,7 @@ import { getAppRoute } from './app/get';
 import { postAppCommandRoute } from './app/actions/command/post';
 import { getArtifactsRoute } from './artifacts/get';
 import { getArtifactRoute } from './artifacts/[artifactType]/[targetId]/get';
+import { getOverrideAuditRoute } from './audits/override/[overrideAuditId]/get';
 import { getCommandRoute } from './commands/[commandId]/get';
 import { postCommandsRoute } from './commands/post';
 import { getRootRoute } from './root/get';
@@ -23,6 +24,7 @@ const ROUTES: readonly RuntimeRouteDefinition[] = [
   getRunStreamRoute,
   getArtifactsRoute,
   getArtifactRoute,
+  getOverrideAuditRoute,
   postRebuildGraphRoute,
   postReSyncStateRoute,
 ];

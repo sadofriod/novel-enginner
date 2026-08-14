@@ -19,6 +19,10 @@ docs/
 state/
   book/
     book.md
+    project-brief.md
+    story-blueprint.md
+  world/
+    world-foundation.md
   volumes/
     volume-001.md
   chapters/
@@ -65,6 +69,8 @@ drafts/
   exported/
 assets/
   references/
+references/
+  imported/
 ```
 
 ## 2.3 Git 跟踪策略
@@ -99,6 +105,9 @@ assets/
 | Location | `location-{slug}.md` |
 | TechRule | `tech-{slug}.md` |
 | PlotClue | `clue-{slug}.md` |
+| ProjectBrief | `state/book/project-brief.md` |
+| WorldFoundation | `state/world/world-foundation.md` |
+| StoryBlueprint | `state/book/story-blueprint.md` |
 
 约束：
 
@@ -287,6 +296,8 @@ sceneAnchorIds:
 - 需要人工深度改写时，才导出到 `drafts/exported/`。
 - `export-draft` 是 proposal 的显式终态动作；人工深改后的内容重新回流时，必须创建新的 proposal，而不是复用旧 proposal。
 - 一旦 proposal 被批准，且工作区干净有效，其结果再回写到 canonical Markdown；若工作区无法落盘，则 proposal 进入 `commit-blocked` / `waiting-sync` 状态，待工作区恢复后再由作者确认继续。
+
+补充规则：`project-brief`、`world-foundation`、`story-blueprint` 是独立 canonical 工件和 proposal artifact type。它们采用严格 frontmatter 核心字段、固定 Markdown section 和 `extensions` 附录的合同；字段定义、初始化顺序与导入规则见 11。
 
 ### 示例：Proposal Frontmatter
 

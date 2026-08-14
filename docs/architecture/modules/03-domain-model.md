@@ -5,6 +5,9 @@
 | 聚合 | 权威性 | 说明 |
 | --- | --- | --- |
 | Book | canonical | 总体设定、书籍级策略、工作区级约束 |
+| ProjectBrief | canonical | 创作定位、读者承诺、市场研究证据与待验证假设 |
+| WorldFoundation | canonical | 不可违反的世界硬规则与最小设定约束 |
+| StoryBlueprint | canonical | 主线、终局、卷级功能和跨卷承诺 |
 | Volume | canonical | 卷目标、阶段推进、卷级回收计划 |
 | Chapter Outline | canonical | 章级结构、情绪曲线、场景计划、伏笔计划 |
 | Chapter Manuscript | canonical | 最终正文 |
@@ -19,6 +22,16 @@
 | Scene | canonical skeleton + derived enrichment | 在细纲中声明骨架，再由正文和索引补全，用于图谱、索引和节奏映射 |
 
 规则：所有带 `status` 的聚合都必须拥有显式状态机，禁止把 `status` 当自由文本备注。
+
+## 3.1.1 启动期全书工件
+
+`ProjectBrief`、`WorldFoundation` 与 `StoryBlueprint` 是 Book 之外的独立 canonical 聚合，不能把完整内容回填进 `Book` 或复用 `world-change` patch set。
+
+- `ProjectBrief` 记录题材、目标读者、读者承诺、核心前提、开篇钩子、内容边界、作品形态、研究证据 ID 与待验证假设。
+- `WorldFoundation` 记录时代与主舞台、现实模式、基调、能力/技术体系、不可违反规则、社会秩序、叙事禁区、术语引用和 `projectBriefRef`。
+- `StoryBlueprint` 记录 `projectBriefRef`、`worldFoundationRef`、主角弧光、核心冲突、对立面、终局方向、卷级计划与跨卷承诺。
+
+三者都允许 `extensions`，但不得把流程依赖字段隐藏在自由 Markdown 或扩展对象中。完整字段与 bootstrap 阶段合同见 11。
 
 ## 3.1.1 Book
 

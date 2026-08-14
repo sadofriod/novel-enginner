@@ -26,6 +26,7 @@ export type NovelEvents = {
       intent: 'propose' | 'regenerate';
       requestedBy: string;
       idempotencyKey: string;
+      runId: string;
       canonicalVersion?: string;
     };
   };
@@ -37,6 +38,7 @@ export type NovelEvents = {
       intent: 'propose' | 'regenerate';
       requestedBy: string;
       idempotencyKey: string;
+      runId: string;
       canonicalVersion?: string;
     };
   };
@@ -48,6 +50,7 @@ export type NovelEvents = {
       intent: 'propose' | 'regenerate';
       requestedBy: string;
       idempotencyKey: string;
+      runId: string;
       canonicalVersion?: string;
     };
   };
@@ -59,6 +62,7 @@ export type NovelEvents = {
       intent: 'propose' | 'regenerate';
       requestedBy: string;
       idempotencyKey: string;
+      runId: string;
       canonicalVersion?: string;
     };
   };
@@ -90,9 +94,10 @@ export const inngest = new Inngest({
 export async function dispatchCommandToInngest(
   envelope: CommandEnvelope,
   canonicalVersion?: string,
+  runId?: string,
 ): Promise<void> {
   if (envelope.artifactType !== undefined) {
-    await dispatchArtifactCommand(envelope, canonicalVersion);
+    await dispatchArtifactCommand(envelope, canonicalVersion, runId);
     return;
   }
 
@@ -102,8 +107,9 @@ export async function dispatchCommandToInngest(
 async function dispatchArtifactCommand(
   envelope: CommandEnvelope,
   canonicalVersion?: string,
+  runId?: string,
 ): Promise<void> {
-  if (envelope.targetId === undefined) {
+  if (envelope.targetId === undefined || runId === undefined) {
     return;
   }
 
@@ -114,6 +120,7 @@ async function dispatchArtifactCommand(
     intent: envelope.intent === 'regenerate' ? 'regenerate' : 'propose',
     requestedBy: envelope.requestedBy,
     idempotencyKey: envelope.idempotencyKey,
+    runId,
     ...(canonicalVersion !== undefined ? { canonicalVersion } : {}),
   } as const;
 

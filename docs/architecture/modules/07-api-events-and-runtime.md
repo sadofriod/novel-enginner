@@ -14,7 +14,7 @@
 
 所有创建、审批、恢复和系统同步类命令共享统一 envelope。
 
-补充规则：`artifactType` 只在 proposal / approval 类 intent 中使用；`rebuild-graph`、`re-sync-state` 这类系统 intent 使用 `systemTaskType`，此时 `artifactType` 与 `targetId` 可以为空。
+补充规则：`artifactType` 只在 proposal / approval 类 intent 中使用；`rebuild-graph`、`re-sync-state` 和 bootstrap session 操作等系统 intent 使用 `systemTaskType`，此时 `artifactType` 与 `targetId` 可以为空。
 
 ```json
 {
@@ -51,6 +51,10 @@
 - `resume-run`
 - `abort-run`
 - `mark-external-failure`
+
+### Bootstrap system intent
+
+新建/继续 session、提交对话轮次、市场研究、导入扫描、确认导入和丢弃 session 使用 bootstrap system intent。它们复用命令幂等、Run 与 SSE，但只更新 `BootstrapSession`；阶段候选内容仍使用 `propose` / `approve` / `reject`。具体状态机见 11。
 
 ## 7.4 最小命令响应
 
@@ -111,6 +115,10 @@ proposal 是一等、不可变的审计实体。最小快照建议包括：
 | `GET` | `/runs/:runId` | 查询运行快照 |
 | `GET` | `/runs/:runId/stream` | SSE 订阅运行事件 |
 | `GET` | `/artifacts/:artifactType/:targetId` | 查询 canonical 或 proposal 摘要 |
+| `GET` | `/bootstrap-sessions` | 查询可恢复 bootstrap session |
+| `GET` | `/bootstrap-sessions/:sessionId` | 查询 session 当前状态 |
+| `GET` | `/bootstrap-sessions/:sessionId/revisions` | 查询不可变阶段 revision |
+| `GET` | `/bootstrap-sessions/:sessionId/evidence` | 查询研究来源证据 |
 | `POST` | `/sync/rebuild-graph` | 手动刷新图谱 |
 | `POST` | `/sync/re-sync-state` | 重新解析 canonical Markdown |
 
@@ -137,6 +145,9 @@ proposal 是一等、不可变的审计实体。最小快照建议包括：
 - `external.failure`
 - `workspace.invalid`
 - `workspace.valid`
+- `bootstrap.session.updated`
+- `bootstrap.stage.changed`
+- `bootstrap.ready-to-write`
 
 ## 7.7 Inngest 事件建议
 

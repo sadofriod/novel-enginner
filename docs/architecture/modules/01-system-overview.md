@@ -18,7 +18,7 @@
 | --- | --- |
 | 主战场 | 本地工作区优先 |
 | 真相源 | Markdown 是唯一真相源 |
-| 主要使用面 | VS Code 编辑，Web 控制台审批和可视化 |
+| 主要使用面 | VS Code 编辑；Web 负责 workspace 入口、启动引导、审批和可视化 |
 | 工作流 | Inngest Durable Workflow |
 | 服务运行时 | Bun 本地服务 |
 | 存储 | Docker Postgres + pgvector |
@@ -56,6 +56,8 @@ flowchart LR
 
 ### Web Console
 
+- 提供最近 workspace 首页，以及新建作品、导入作品和继续 bootstrap session 的入口。
+- 使用全屏分阶段工作台承载市场研究、五轮灵感对话、初始化提案和导入映射；详细合同见 11。
 - 展示审批队列、剧情图谱、运行追踪和工件 diff。
 - 触发 proposal 类命令和审批类命令。
 - 默认作为受信任本地界面，不引入登录系统。
@@ -94,6 +96,7 @@ flowchart LR
 
 ## 1.7 人工确认点
 
+- 新书立项简报、世界观最小集、作品蓝图和每个分卷大纲。
 - 世界观大改。
 - 分卷大纲。
 - 单章细纲。

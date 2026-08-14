@@ -10,6 +10,7 @@ export interface RouteApi {
   handleListArtifacts(): Response;
   handleGetRun(runId: string): Response;
   handleGetArtifact(artifactType: string, targetId: string): Response;
+  handleGetOverrideAudit(overrideAuditId: string): Promise<Response>;
   handleRunStream(runId: string, request: Request): Response;
   handleSyncCommand(syncIntent: string, request: Request): Promise<Response>;
 }

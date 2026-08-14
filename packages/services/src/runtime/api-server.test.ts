@@ -113,6 +113,23 @@ describe('command envelope validation', () => {
 });
 
 describe('run / artifact lookup', () => {
+  test('run control commands transition the targeted run', async () => {
+    const { fetch, store } = createApiServer();
+    const accepted = await postJson(fetch, '/commands', { ...BASE_ENVELOPE, idempotencyKey: 'cmd-control-base-001' });
+    const { runId } = await accepted.json();
+
+    const response = await postJson(fetch, '/commands', {
+      ...BASE_ENVELOPE,
+      targetId: runId,
+      intent: 'abort-run',
+      idempotencyKey: 'cmd-control-abort-001',
+    });
+
+    expect(response.status).toBe(202);
+    expect(store.getRun(runId)?.status).toBe('aborted');
+    expect(store.getRun(runId)?.nextExpectedState).toBe('run-aborted');
+  });
+
   test('GET /app redirects to the separately hosted web console', async () => {
     const { fetch, store } = createApiServer();
     store.upsertArtifact({
@@ -262,6 +279,77 @@ describe('run / artifact lookup', () => {
 });
 
 describe('sync routes', () => {
+  test('rebuild-graph projects a canonical derived graph into artifact details', async () => {
+    const { fetch, store } = createApiServer();
+    store.upsertArtifact({
+      artifactType: 'character-update',
+      targetId: 'char-derived-test',
+      canonicalStatus: 'clean',
+    });
+    await postJson(fetch, '/sync/re-sync-state', {
+      workspaceId: 'workspace-derived-test',
+      bookId: 'book-derived-test',
+      requestedBy: 'author-local',
+      approvalMode: 'manual',
+      idempotencyKey: 'sync-derived-001',
+      files: [{
+        path: 'state/characters/char-derived-test.md',
+        content: `---
+id: char-derived-test
+name: Derived
+status: active
+coreMotivation: survive
+worldview: pragmatic
+techLevel: tier-1
+---
+`,
+      }],
+    });
+
+    const rebuild = await postJson(fetch, '/sync/rebuild-graph', {
+      workspaceId: 'workspace-derived-test',
+      bookId: 'book-derived-test',
+      requestedBy: 'author-local',
+      approvalMode: 'manual',
+      idempotencyKey: 'rebuild-derived-001',
+    });
+    expect(rebuild.status).toBe(202);
+    const artifactResponse = await fetch(new Request('http://local.test/artifacts/character-update/char-derived-test'));
+    const artifact = await artifactResponse.json();
+    expect(artifact.derivedGraph.status).toBe('ready');
+    expect(artifact.derivedGraph.latestCanonicalVersion).toBe('snap-0001');
+    expect(artifact.derivedGraph.nodes).toEqual([{ id: 'char-derived-test', label: 'Derived', type: 'Character' }]);
+  });
+
+  test('persists workspace validity so invalid sync blocks later write commands', async () => {
+    const { fetch } = createApiServer({ reSyncStateOptions: { getActiveRuns: () => [] } });
+    const invalidCharacter = `---
+id: char-invalid-sync
+name: broken
+status: not-a-valid-status
+---
+`;
+
+    const syncResponse = await postJson(fetch, '/sync/re-sync-state', {
+      workspaceId: 'workspace-validity-test',
+      bookId: 'book-validity-test',
+      requestedBy: 'author-local',
+      approvalMode: 'manual',
+      idempotencyKey: 'sync-invalid-001',
+      files: [{ path: 'state/characters/char-invalid-sync.md', content: invalidCharacter }],
+    });
+    expect(syncResponse.status).toBe(202);
+
+    const proposeResponse = await postJson(fetch, '/commands', {
+      ...BASE_ENVELOPE,
+      workspaceId: 'workspace-validity-test',
+      bookId: 'book-validity-test',
+      idempotencyKey: 'propose-blocked-after-invalid-sync',
+    });
+    expect(proposeResponse.status).toBe(400);
+    expect((await proposeResponse.json()).code).toBe('workspace-invalid');
+  });
+
   test('POST /sync/rebuild-graph accepts without a body', async () => {
     const { fetch } = createApiServer();
     const response = await fetch(new Request('http://local.test/sync/rebuild-graph', { method: 'POST' }));

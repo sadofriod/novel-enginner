@@ -2,8 +2,10 @@
 
 ## 6.1 角色定位
 
-Web 控制台不是主写作面板，而是：
+Web 应用使用 React Router 数据路由。它不是主写作面板，而是：
 
+- 最近 workspace 首页，以及新建、导入和继续 bootstrap session 的入口。
+- 全屏分阶段 bootstrap 工作台。
 - proposal 触发面。
 - 审批面。
 - 运行追踪面。
@@ -11,6 +13,8 @@ Web 控制台不是主写作面板，而是：
 
 ## 6.2 主视图
 
+- `Workspace 首页`
+- `Bootstrap 工作台`
 - `任务/审批队列`
 - `剧情图谱`
 - `工件详情`
@@ -35,6 +39,9 @@ Web 控制台不是主写作面板，而是：
 | artifactType | 默认预算 | 备注 |
 | --- | --- | --- |
 | `world-change` | `2000-4000` 字 | 影响分析型提案 |
+| `project-brief` | 不适用 | 创作定位与研究约束 |
+| `world-foundation` | 不适用 | 世界观最小硬规则 |
+| `story-blueprint` | 不适用 | 全书主线与跨卷承诺 |
 | `volume-outline` | `3000-5000` 字 | 卷级设计文档 |
 | `chapter-outline` | `400-800` 字 | 单章结构化细纲 |
 | `chapter-manuscript` | 默认 `2500-4000` 字，可覆写到 `1500-5000` | 正文草稿 |
@@ -47,6 +54,8 @@ Web 控制台不是主写作面板，而是：
 | `resource-update` | `200-600` 字 | 通用跨实体资源提案 |
 
 规则：每次 Web 端操作必须显式选择 `artifactType`，不能依赖系统猜测。
+
+bootstrap 会话操作不属于 artifact proposal。它们通过 system intent 更新运行时会话，工作台使用只读 bootstrap 资源端点恢复状态；完整交互规则见 11。
 
 补充规则：宿主聚合导向的 update 只用于宿主自身 mutable fields；共享事实、关系、资源变更必须走 `fact-update`、`relationship-update`、`resource-update`。
 

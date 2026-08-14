@@ -139,6 +139,7 @@ export function ArtifactDetail({ artifact, onAction, pending = false, actionForm
             ['canonicalStatus', artifact.canonicalStatus ?? '—'],
             ['activeProposalId', artifact.activeProposalId ?? '—'],
             ['proposalStatus', artifact.proposalStatus ?? '—'],
+            ['overrideAudit', artifact.overrideAudit === undefined ? '—' : artifact.overrideAudit.relatedRunId],
           ] as const).map(([k, v]) => (
             <tr key={k}>
               <td style={{ paddingRight: '12px', color: '#9e9e9e', fontWeight: 500, whiteSpace: 'nowrap' }}>{k}</td>

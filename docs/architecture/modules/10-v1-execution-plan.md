@@ -9,7 +9,31 @@
 - 所有 derived 结果都必须可重建，不允许反向成为真相源。
 - 任何写 canonical 的主流程都必须在“工作区干净、快照一致、前置检查通过”的前提下提交。
 
-## 10.2 Phase 1: 领域合同与类型清理
+## 10.2 Bootstrap 跨阶段工作流
+
+### 目标
+
+让作者能从 Web workspace 首页创建新书或导入既有 Markdown，并在进入日常审批控制台前获得可恢复、可审计的初始化流程。
+
+这不是一个可脱离后续基础阶段单独交付的 Phase。它必须按本文件既有依赖顺序实现：领域类型和 canonical 契约进入 Phase 1-2，会话持久化进入 Phase 4，命令/API/SSE 进入 Phase 5，proposal/workflow、Agent 能力和 Web 路由分别进入 Phase 6-8。
+
+### 交付物
+
+- 新增 `BootstrapSession`、`BootstrapRevision`、`BootstrapEvidence` Prisma 模型与 migration；实现 30 天 abandoned 会话清理。
+- 在 `packages/services/src/bootstrap/` 实现状态机、研究 port、导入映射/确认、健康报告与 repository。
+- 新增 `project-brief`、`world-foundation`、`story-blueprint` 的领域 schema、Markdown parser/serializer、canonical 路径和 proposal artifact type。
+- 新增 bootstrap system intent、只读 session/revision/evidence API 和 SSE 事件；初始化候选继续走既有 Proposal 生命周期。
+- 引入 React Router 数据路由，实现 workspace 首页、全屏 bootstrap 工作台和书籍控制台路由。
+- 以 unit、数据库集成、runtime 集成和 Playwright 覆盖新书、导入、恢复、重新导入与阶段推进。
+
+### 验收
+
+- 五轮对话中断后可从相同 session/revision 恢复，且获批前不存在 canonical Markdown。
+- `project-brief` 获批时原子创建 `Book` 与 `project-brief`；后续世界观、蓝图、卷纲和细纲遵守显式继续与审批规则。
+- 导入在映射确认前不写 canonical；确认后保留原目录、生成规范化副本和健康报告，未识别文件进入 `references/imported/`。
+- Browser MCP 调用只发生在服务端受限研究 port，证据可查询且不写入原始网页正文。
+
+## 10.3 Phase 1: 领域合同与类型清理
 
 ### 目标
 
@@ -33,7 +57,7 @@
 - 新类型之间不存在 `knownFactIds` 与 `knowledgeLedger` 并行作为双权威的情况。
 - 所有新增状态都能在 TypeScript 层被穷尽检查。
 
-## 10.3 Phase 2: Canonical 工作区与解析/序列化
+## 10.4 Phase 2: Canonical 工作区与解析/序列化
 
 ### 目标
 
@@ -69,7 +93,7 @@
 - `displayTitle`、`knowledgeLedger`、`PlanningAnchor`、scene anchors 能被稳定解析。
 - 跨实体引用都能通过前缀和存在性校验。
 
-## 10.4 Phase 3: `re-sync-state` 引擎与工作区状态机
+## 10.5 Phase 3: `re-sync-state` 引擎与工作区状态机
 
 ### 目标
 
@@ -95,7 +119,7 @@
 - 保存无效 frontmatter 时，运行时不会把坏文件认成新 canonical。
 - 工作区 invalid 时，`propose` / `approve` / `override-approve` 会被拒绝并返回结构化原因。
 
-## 10.5 Phase 4: Prisma、Postgres 与本地 Inngest 基础设施
+## 10.6 Phase 4: Prisma、Postgres 与本地 Inngest 基础设施
 
 ### 目标
 
@@ -123,7 +147,7 @@
 - Prisma 负责常规表迁移，vector 相关 SQL 能成功应用。
 - Bun 服务能向本地 Inngest 发起事件并接收 workflow 回调。
 
-## 10.6 Phase 5: Bun API、CLI 与 SSE 控制面
+## 10.7 Phase 5: Bun API、CLI 与 SSE 控制面
 
 ### 目标
 
@@ -166,7 +190,7 @@
 - 任何命令都能返回 `commandId`、`runId`、`status` 与 SSE channel。
 - CLI 触发命令后，Web 可通过 SSE 看到状态变化。
 
-## 10.7 Phase 6: Proposal 生命周期与 Workflow 骨架
+## 10.8 Phase 6: Proposal 生命周期与 Workflow 骨架
 
 ### 目标
 
@@ -196,7 +220,7 @@
 - 活动中的主流程遇到新快照时，会中止并留下明确 drift 原因。
 - 已批准 proposal 在 dirty workspace 下不会误写 canonical。
 
-## 10.8 Phase 7: Agent 装配、Prompt 分层与 Reviewer
+## 10.9 Phase 7: Agent 装配、Prompt 分层与 Reviewer
 
 ### 目标
 
@@ -224,7 +248,7 @@
 - 手工直改正文后会看到 `review-stale` 风险标记，并异步生成 synthetic review。
 - missing capability source 会阻断依赖它的 Agent 装配。
 
-## 10.9 Phase 8: Web 控制台
+## 10.10 Phase 8: Web 控制台
 
 ### 目标
 
@@ -248,7 +272,7 @@
 - 对被阻断 proposal，界面可明确显示“已批准但未落盘”。
 - Web 微调后，旧 review 不会被错误复用。
 
-## 10.10 Phase 9: Graph、Search 与 Embedding
+## 10.11 Phase 9: Graph、Search 与 Embedding
 
 ### 目标
 
@@ -275,7 +299,7 @@
 - `knowledgeLedger` 改动后可影响相关图边和检索摘要。
 - embedding 仅覆盖摘要层，不直接拿全量正文做主索引单位。
 
-## 10.11 Phase 10: 端到端验收矩阵
+## 10.12 Phase 10: 端到端验收矩阵
 
 ### 必测场景
 
@@ -289,10 +313,12 @@
 8. Web 端对 proposal 做短文本微修后，旧 review 失效并触发重检。
 9. capability registry 缺失某个被 workflow 依赖的真实能力源时，相关 Agent 装配失败并给出明确诊断。
 10. `knowledgeLedger`、`displayTitle`、`PlanningAnchor`、scene anchors 全部能被解析、持久化并在 API 摘要中返回。
+11. 新书 bootstrap 在第五轮后创建可审批的 `project-brief`，确认前可恢复且不写 canonical；确认后按世界观、蓝图、卷纲和首批细纲推进到 `ready-to-write`。
+12. 导入会话在映射确认前不写 canonical，确认后复制规范化内容、隔离未识别资料并生成健康报告；原目录变化只有显式重新导入才能回流。
 
-## 10.12 推荐实施顺序
+## 10.13 推荐实施顺序
 
-1. 先完成 Phase 1-3，拿到“最后有效快照 + 自动 `re-sync-state` + invalid 阻断”的本地核心循环。
+1. 在 Phase 1 启动 Bootstrap 跨阶段工作流：先落类型与 canonical 契约，再完成“最后有效快照 + 自动 `re-sync-state` + invalid 阻断”的本地核心循环。
 2. 再完成 Phase 4-6，把 proposal、workflow、approval、commit-blocked 语义真正跑通。
 3. 然后完成 Phase 7-9，把 Agent、Reviewer、Web 与 graph/search 接到这条稳定主干上。
 4. 最后用 Phase 10 的验收矩阵做端到端收口，而不是边做边放宽状态语义。

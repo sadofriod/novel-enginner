@@ -18,6 +18,7 @@
 | [08-graph-search-and-capabilities.md](./modules/08-graph-search-and-capabilities.md) | React Flow 图谱、检索策略、能力注册表、Prompt/Skill/MCP 装配 |
 | [09-v1-clarifications.md](./modules/09-v1-clarifications.md) | 已拍板决策的速查摘要与跳转索引 |
 | [10-v1-execution-plan.md](./modules/10-v1-execution-plan.md) | 按依赖顺序拆分的完整 V1 实施文档与验收矩阵 |
+| [11-bootstrap-and-onboarding.md](./modules/11-bootstrap-and-onboarding.md) | 新书创建、既有 Markdown 导入与 bootstrap 工程合同 |
 
 ## 全局不变式
 
@@ -42,6 +43,7 @@
 - 01-08 仍是主规范阅读链路；关键补充决策已经回写到对应模块。
 - [09-v1-clarifications.md](./modules/09-v1-clarifications.md) 只保留速查摘要与跳转索引，不再承担主规范正文。
 - [10-v1-execution-plan.md](./modules/10-v1-execution-plan.md) 把完整 V1 拆成可顺序实施的工作包和验收条件。
+- [11-bootstrap-and-onboarding.md](./modules/11-bootstrap-and-onboarding.md) 定义进入既有 proposal 主流程之前的新书与导入路径。
 
 ## 当前仓库与目标架构的差距
 

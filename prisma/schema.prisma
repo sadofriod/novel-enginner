@@ -27,6 +27,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // Accepted command envelope records are persisted separately from run execution
@@ -53,8 +54,8 @@ model Command {
 // ---------------------------------------------------------------------------
 
 model Proposal {
-  id                      String    @id @default(uuid())
-  proposalId              String    @unique
+  id                      String   @id @default(uuid())
+  proposalId              String   @unique
   workspaceId             String
   bookId                  String
   artifactType            String
@@ -68,12 +69,12 @@ model Proposal {
   latestReviewResultId    String?
   overrideAuditId         String?
   bundledDiffRefs         Json?
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
-  run              Run              @relation(fields: [parentRunId], references: [runId])
-  reviewerResults  ReviewerResult[]
-  overrideAudits   OverrideAudit[]
+  run             Run              @relation(fields: [parentRunId], references: [runId])
+  reviewerResults ReviewerResult[]
+  overrideAudits  OverrideAudit[]
 
   @@index([workspaceId, bookId])
   @@index([targetId])
@@ -86,28 +87,28 @@ model Proposal {
 // ---------------------------------------------------------------------------
 
 model Run {
-  id             String    @id @default(uuid())
-  runId          String    @unique
-  workspaceId    String
-  bookId         String
-  commandIntent  String
-  artifactType   String?
-  targetId       String?
-  status         String
-  nextExpectedState String?
-  requestedBy    String
-  idempotencyKey String
+  id                      String    @id @default(uuid())
+  runId                   String    @unique
+  workspaceId             String
+  bookId                  String
+  commandIntent           String
+  artifactType            String?
+  targetId                String?
+  status                  String
+  nextExpectedState       String?
+  requestedBy             String
+  idempotencyKey          String
   basedOnCanonicalVersion String?
-  driftReason    String?
-  startedAt      DateTime  @default(now())
-  completedAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  driftReason             String?
+  startedAt               DateTime  @default(now())
+  completedAt             DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
-  steps           RunStep[]
-  proposals       Proposal[]
-  overrideAudits  OverrideAudit[]
-  rebuildJobs     DerivedRebuildJob[]
+  steps          RunStep[]
+  proposals      Proposal[]
+  overrideAudits OverrideAudit[]
+  rebuildJobs    DerivedRebuildJob[]
 
   @@unique([workspaceId, idempotencyKey])
   @@index([workspaceId, bookId])
@@ -120,19 +121,19 @@ model Run {
 // ---------------------------------------------------------------------------
 
 model RunStep {
-  id            String    @id @default(uuid())
-  runId         String
-  stepKey       String
-  sequence      Int
-  status        String
-  isCheckpoint  Boolean   @default(false)
-  input         Json?
-  output        Json?
-  errorReason   String?
-  startedAt     DateTime  @default(now())
-  completedAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id           String    @id @default(uuid())
+  runId        String
+  stepKey      String
+  sequence     Int
+  status       String
+  isCheckpoint Boolean   @default(false)
+  input        Json?
+  output       Json?
+  errorReason  String?
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   run Run @relation(fields: [runId], references: [runId])
 
@@ -168,16 +169,16 @@ model ReviewerResult {
 // ---------------------------------------------------------------------------
 
 model OverrideAudit {
-  id             String   @id @default(uuid())
-  overrideAuditId String  @unique
-  proposalId     String
-  overrideReason String
-  overrideBy     String
-  relatedRunId   String
-  failedChecks   Json
-  scoreSnapshot  Json
-  timestamp      DateTime @default(now())
-  createdAt      DateTime @default(now())
+  id              String   @id @default(uuid())
+  overrideAuditId String   @unique
+  proposalId      String
+  overrideReason  String
+  overrideBy      String
+  relatedRunId    String
+  failedChecks    Json
+  scoreSnapshot   Json
+  timestamp       DateTime @default(now())
+  createdAt       DateTime @default(now())
 
   proposal Proposal @relation(fields: [proposalId], references: [proposalId])
   run      Run      @relation(fields: [relatedRunId], references: [runId])
@@ -192,15 +193,15 @@ model OverrideAudit {
 // ---------------------------------------------------------------------------
 
 model SyntheticCommit {
-  id                 String   @id @default(uuid())
-  syntheticCommitId  String   @unique
-  workspaceId        String
-  bookId             String
-  targetFilePaths    Json
-  aggregatedFrom     Json?
-  canonicalVersion   String
-  message            String
-  createdAt          DateTime @default(now())
+  id                String   @id @default(uuid())
+  syntheticCommitId String   @unique
+  workspaceId       String
+  bookId            String
+  targetFilePaths   Json
+  aggregatedFrom    Json?
+  canonicalVersion  String
+  message           String
+  createdAt         DateTime @default(now())
 
   @@index([workspaceId, bookId])
   @@map("synthetic_commits")
@@ -211,15 +212,15 @@ model SyntheticCommit {
 // ---------------------------------------------------------------------------
 
 model CapabilityDiscoverySnapshot {
-  id             String   @id @default(uuid())
-  snapshotId     String   @unique
-  workspaceId    String
-  status         String
-  capabilityId   String?
-  source         String?
-  details        String?
-  discoveredAt   DateTime @default(now())
-  createdAt      DateTime @default(now())
+  id           String   @id @default(uuid())
+  snapshotId   String   @unique
+  workspaceId  String
+  status       String
+  capabilityId String?
+  source       String?
+  details      String?
+  discoveredAt DateTime @default(now())
+  createdAt    DateTime @default(now())
 
   @@index([workspaceId])
   @@index([status])
@@ -232,19 +233,19 @@ model CapabilityDiscoverySnapshot {
 // ---------------------------------------------------------------------------
 
 model DerivedRebuildJob {
-  id           String    @id @default(uuid())
-  jobId        String    @unique
-  workspaceId  String
-  bookId       String?
-  jobType      String
-  status       String
-  triggeredBy  String?
-  runId        String?
-  errorReason  String?
-  startedAt    DateTime?
-  completedAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id          String    @id @default(uuid())
+  jobId       String    @unique
+  workspaceId String
+  bookId      String?
+  jobType     String
+  status      String
+  triggeredBy String?
+  runId       String?
+  errorReason String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   run Run? @relation(fields: [runId], references: [runId])
 
@@ -266,20 +267,20 @@ model DerivedRebuildJob {
 // ---------------------------------------------------------------------------
 
 model SearchDocument {
-  id           String   @id @default(uuid())
-  documentId   String   @unique
-  workspaceId  String
-  bookId       String
-  nodeId       String
-  kind         String
-  sourceRef    String
-  text         String
-  contentHash  String
+  id          String   @id @default(uuid())
+  documentId  String   @unique
+  workspaceId String
+  bookId      String
+  nodeId      String
+  kind        String
+  sourceRef   String
+  text        String
+  contentHash String
   /// Set to true after the out-of-process embedding job populates the
   /// pgvector `embedding` column (managed via raw SQL, not Prisma).
-  embedded     Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  embedded    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([workspaceId, bookId])
   @@index([nodeId])

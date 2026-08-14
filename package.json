@@ -4,12 +4,17 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "bun run src/runtime/server.ts",
-    "start": "bun run src/runtime/server.ts",
-    "cli": "bun run src/runtime/cli.ts",
-    "test": "bun test src",
+    "dev": "pnpm dev:services & service_pid=$!; pnpm dev:web; web_exit=$?; kill $service_pid 2>/dev/null; wait $service_pid 2>/dev/null; exit $web_exit",
+    "dev:services": "bun run packages/services/src/runtime/server.ts",
+    "build:web": "webpack --config packages/web/webpack.config.mjs",
+    "dev:web": "pnpm build:web && bun run packages/web/src/server.ts",
+    "start:web": "pnpm build:web && bun run packages/web/src/server.ts",
+    "start": "pnpm dev",
+    "cli": "bun run packages/services/src/runtime/cli.ts",
+    "test": "bun test packages",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint packages",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:migrate": "prisma migrate deploy",
@@ -39,6 +44,7 @@
   "devDependencies": {
     "@eslint/js": "^9.18.0",
     "@playwright/test": "^1.62.1",
+    "@swc/core": "^1.15.47",
     "@types/bun": "latest",
     "@types/d3": "^7.4.3",
     "@types/node": "^24.7.0",
@@ -47,7 +53,11 @@
     "eslint": "^9.18.0",
     "globals": "^15.14.0",
     "prisma": "6.19.3",
+    "swc-loader": "^0.2.7",
     "typescript": "^5.8.2",
-    "typescript-eslint": "^8.21.0"
+    "typescript-eslint": "^8.21.0",
+    "webpack": "^5.109.2",
+    "webpack-cli": "^7.2.2",
+    "webpack-dev-server": "^6.0.0"
   }
 }

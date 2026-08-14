@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
 const port = 3210;
+const apiPort = 3211;
 
 export default defineConfig({
   testDir: './e2e',
@@ -12,10 +13,18 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${port}`,
     trace: 'on-first-retry',
   },
-  webServer: {
-    command: `PORT=${port} NOVEL_E2E_FIXTURE=1 bun run src/runtime/server.ts`,
-    url: `http://127.0.0.1:${port}/app`,
-    reuseExistingServer: process.env['CI'] === undefined,
-    timeout: 30_000,
-  },
+  webServer: [
+    {
+      command: `SERVICE_PORT=${apiPort} NOVEL_E2E_FIXTURE=1 pnpm dev:services`,
+      url: `http://127.0.0.1:${apiPort}/artifacts`,
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
+    {
+      command: `WEB_PORT=${port} SERVICE_URL=http://127.0.0.1:${apiPort} pnpm dev:web`,
+      url: `http://127.0.0.1:${port}/app`,
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
+  ],
 });

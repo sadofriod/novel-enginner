@@ -10,6 +10,7 @@ export default tseslint.config(
       'coverage/**',
       '.bun/**',
       'public/**',
+      'packages/**/dist/**',
       '**/*.spec.*',
       '**/*.test.*',
     ],
@@ -17,7 +18,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['**/*.{js,ts,tsx}'],
+    files: ['**/*.{js,mjs,ts,tsx}'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',

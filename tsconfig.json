@@ -13,7 +13,11 @@
     "verbatimModuleSyntax": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node", "bun"]
+    "types": ["node", "bun"],
+    "baseUrl": ".",
+    "paths": {
+      "@novel-enginner/services/*": ["packages/services/src/*"]
+    }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  "include": ["packages/**/*.ts", "packages/**/*.tsx"]
 }

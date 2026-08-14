@@ -5,6 +5,7 @@ import {
   assemblePromptLayers,
   CapabilityAssemblyError,
   createDefaultModelProvider,
+  discoverCapabilitiesFromAllSources,
   discoverMcpCapabilities,
   OpenAiModelProvider,
   ProviderConfigError,
@@ -47,6 +48,46 @@ describe('provider abstraction', () => {
     await expect(provider.complete({ tier: 'balanced', prompt: 'hello' })).rejects.toBeInstanceOf(
       ProviderConfigError,
     );
+  });
+
+  test('OpenAI provider sends system and prompt to the configured model', async () => {
+    const previousFetch = globalThis.fetch;
+    const requests: Request[] = [];
+    globalThis.fetch = (async (input, init) => {
+      requests.push(new Request(input, init));
+      return new Response(
+        JSON.stringify({
+          choices: [{ index: 0, message: { content: 'generated text' }, finish_reason: 'stop' }],
+          model: 'gpt-4.1-mini',
+          usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const provider = new OpenAiModelProvider({ apiKey: 'test-key' });
+      const result = await provider.complete({
+        tier: 'balanced',
+        system: 'You are concise.',
+        prompt: 'Write one sentence.',
+      });
+
+      expect(result.text).toBe('generated text');
+      expect(result.modelId).toBe('gpt-4.1-mini');
+      expect(requests).toHaveLength(1);
+      const body = (await requests[0]?.json()) as {
+        model?: string;
+        messages?: Array<{ role: string; content: string }>;
+      };
+      expect(body.model).toBe('gpt-4.1-mini');
+      expect(body.messages).toEqual([
+        { role: 'system', content: 'You are concise.' },
+        { role: 'user', content: 'Write one sentence.' },
+      ]);
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
   });
 
   test('createDefaultModelProvider reads env configuration', () => {
@@ -95,6 +136,22 @@ describe('capability registry authority and discovery reconciliation', () => {
       servers: { cloakbrowser: {}, github: {}, obsidian: {} },
     });
     expect(discovered.map((entry) => entry.id).sort()).toEqual(['cloakbrowser', 'github', 'obsidian']);
+  });
+
+  test('discovers skill, agent, and prompt-pack sources without enabling them', () => {
+    const discovered = discoverCapabilitiesFromAllSources({
+      mcpConfig: { servers: { cloakbrowser: {} } },
+      skillFiles: ['.agents/skills/research.skill.md'],
+      agentFiles: ['.agents/agents/world-builder.agent.md'],
+      promptPackFiles: ['prompts/anti-ai.prompt.md'],
+    });
+
+    expect(discovered).toEqual([
+      { id: 'cloakbrowser', type: 'mcp', source: 'mcp.json' },
+      { id: 'research', type: 'skill', source: '.agents/skills/research.skill.md' },
+      { id: 'world-builder', type: 'agent', source: '.agents/agents/world-builder.agent.md' },
+      { id: 'anti-ai', type: 'prompt-pack', source: 'prompts/anti-ai.prompt.md' },
+    ]);
   });
 
   test('registered + discovered => registered status', () => {

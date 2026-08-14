@@ -18,10 +18,83 @@
 
 import type { SearchDocument } from './types';
 import { prisma } from '../persistence/client';
+import { buildDerivedGraph } from './derive';
+import type { WorkspaceSnapshot } from '../workspace/sync-engine';
+import { EMBEDDING_DIMENSION, writeEmbedding } from './vector-search';
 
 export interface EmbeddingDispatchOptions {
   readonly workspaceId: string;
   readonly bookId: string;
+}
+
+export interface DerivedSearchRebuildResult {
+  readonly snapshotId: string;
+  readonly documentCount: number;
+  readonly created: number;
+  readonly updated: number;
+  readonly skipped: number;
+}
+
+export interface EmbeddingProvider {
+  readonly providerId: string;
+  embed(texts: readonly string[]): Promise<readonly (readonly number[])[]>;
+}
+
+export interface PendingEmbeddingProcessResult {
+  readonly providerId: string;
+  readonly processedDocumentIds: readonly string[];
+}
+
+export function validateEmbeddingBatch(
+  documentIds: readonly string[],
+  embeddings: readonly (readonly number[])[],
+): void {
+  if (documentIds.length !== embeddings.length) {
+    throw new Error(
+      `Embedding provider returned ${embeddings.length} vectors for ${documentIds.length} documents.`,
+    );
+  }
+  const invalidIndex = embeddings.findIndex((embedding) => embedding.length !== EMBEDDING_DIMENSION);
+  if (invalidIndex !== -1) {
+    throw new Error(
+      `Embedding at index ${invalidIndex} must have length ${EMBEDDING_DIMENSION}, got ${embeddings[invalidIndex]?.length ?? 0}.`,
+    );
+  }
+}
+
+export async function processPendingEmbeddings(input: {
+  readonly workspaceId: string;
+  readonly provider: EmbeddingProvider;
+  readonly batchSize?: number;
+}): Promise<PendingEmbeddingProcessResult> {
+  const pending = await listPendingEmbeddings(input.workspaceId);
+  const batchSize = Math.max(1, Math.floor(input.batchSize ?? 32));
+  const processedDocumentIds: string[] = [];
+
+  for (let offset = 0; offset < pending.length; offset += batchSize) {
+    const batch = pending.slice(offset, offset + batchSize);
+    const documentIds = batch.map((document) => document.documentId);
+    const embeddings = await input.provider.embed(batch.map((document) => document.text));
+    validateEmbeddingBatch(documentIds, embeddings);
+    await Promise.all(embeddings.map((embedding, index) => writeEmbedding(documentIds[index] as string, embedding)));
+    processedDocumentIds.push(...documentIds);
+  }
+
+  return { providerId: input.provider.providerId, processedDocumentIds };
+}
+
+/** Rebuilds the derived graph and summary search rows from one canonical snapshot. */
+export async function rebuildDerivedSearchIndex(
+  snapshot: WorkspaceSnapshot,
+  options: EmbeddingDispatchOptions,
+): Promise<DerivedSearchRebuildResult> {
+  const graph = buildDerivedGraph(snapshot);
+  const counts = await dispatchEmbeddings(graph.searchDocuments, options);
+  return {
+    snapshotId: snapshot.snapshotId,
+    documentCount: graph.searchDocuments.length,
+    ...counts,
+  };
 }
 
 /**

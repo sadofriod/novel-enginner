@@ -21,6 +21,8 @@ export interface HandEditedArtifact {
   readonly targetId: string;
   readonly filePath: string;
   readonly wasApprovedBeforeEdit: boolean;
+  readonly editedText?: string;
+  readonly proposalId?: string;
 }
 
 export interface ReviewFreshnessResult {
@@ -48,6 +50,8 @@ export async function handleHandEditedArtifact(
       artifactType: string;
       targetId: string;
       editedFilePath: string;
+      editedText?: string;
+      proposalId?: string;
     };
   }) => Promise<void>,
 ): Promise<ReviewFreshnessResult> {
@@ -62,6 +66,8 @@ export async function handleHandEditedArtifact(
         artifactType: artifact.artifactType,
         targetId: artifact.targetId,
         editedFilePath: artifact.filePath,
+        ...(artifact.editedText === undefined ? {} : { editedText: artifact.editedText }),
+        ...(artifact.proposalId === undefined ? {} : { proposalId: artifact.proposalId }),
       },
     });
   }

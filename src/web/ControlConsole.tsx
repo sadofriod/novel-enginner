@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import type { ArtifactSummary, RunRecord } from '../runtime/store';
+import { ApiClient } from './api-client';
 import { ApprovalQueue } from './components/ApprovalQueue';
 import { ArtifactDetail, type ApprovalAction } from './components/ArtifactDetail';
 
 export interface ControlConsoleProps {
-  readonly artifacts: readonly ArtifactSummary[];
+  readonly artifacts?: readonly ArtifactSummary[];
   readonly runs?: readonly RunRecord[];
+  readonly apiClient?: ApiClient;
+  readonly workspaceId?: string;
+  readonly bookId?: string;
   readonly selectedArtifact?: ArtifactSummary;
   readonly onSelectArtifact?: (artifact: ArtifactSummary) => void;
   readonly onAction?: (artifact: ArtifactSummary, action: ApprovalAction, note?: string) => void;
@@ -53,19 +57,49 @@ export function RunTracePanel({ runs = [], selectedArtifact }: RunTracePanelProp
 }
 
 export function ControlConsole({
-  artifacts,
+  artifacts = [],
   runs = [],
+  apiClient,
+  workspaceId,
+  bookId,
   selectedArtifact,
   onSelectArtifact,
   onAction,
 }: ControlConsoleProps) {
+  const [remoteArtifacts, setRemoteArtifacts] = useState<readonly ArtifactSummary[]>(artifacts);
+  const [remoteRuns, setRemoteRuns] = useState<readonly RunRecord[]>(runs);
+  const visibleArtifacts = apiClient === undefined ? artifacts : remoteArtifacts;
+  const visibleRuns = apiClient === undefined ? runs : remoteRuns;
+
+  useEffect(() => {
+    if (apiClient === undefined) {
+      return;
+    }
+    let cancelled = false;
+    const refresh = async () => {
+      const [nextArtifacts, nextRuns] = await Promise.all([
+        apiClient.listArtifacts(),
+        apiClient.listRuns(),
+      ]);
+      if (cancelled) {
+        return;
+      }
+      setRemoteArtifacts(nextArtifacts);
+      setRemoteRuns(nextRuns);
+    };
+    void refresh();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient]);
+
   const defaultSelected = useMemo(() => {
     if (selectedArtifact !== undefined) {
       return selectedArtifact;
     }
 
-    return artifacts[0];
-  }, [artifacts, selectedArtifact]);
+    return visibleArtifacts[0];
+  }, [visibleArtifacts, selectedArtifact]);
 
   const [selectedKey, setSelectedKey] = useState<string | undefined>(() => {
     if (defaultSelected === undefined) {
@@ -89,10 +123,37 @@ export function ControlConsole({
       return defaultSelected;
     }
 
-    return artifacts.find(
+    return visibleArtifacts.find(
       (artifact) => `${artifact.artifactType}::${artifact.targetId}` === selectedKey,
     );
-  }, [artifacts, selectedKey, defaultSelected]);
+  }, [visibleArtifacts, selectedKey, defaultSelected]);
+
+  useEffect(() => {
+    if (apiClient === undefined || selected === undefined) {
+      return;
+    }
+    const relatedRun = visibleRuns.find(
+      (run) => run.artifactType === selected.artifactType && run.targetId === selected.targetId,
+    );
+    if (relatedRun === undefined) {
+      return;
+    }
+
+    const stream = apiClient.openRunStream(relatedRun.runId);
+    const refresh = () => {
+      void Promise.all([apiClient.listArtifacts(), apiClient.listRuns()]).then(([nextArtifacts, nextRuns]) => {
+        setRemoteArtifacts(nextArtifacts);
+        setRemoteRuns(nextRuns);
+      });
+    };
+    stream.addEventListener('run.step.completed', refresh);
+    stream.addEventListener('run.completed', refresh);
+    stream.addEventListener('run.aborted', refresh);
+    stream.addEventListener('workspace.invalid', refresh);
+    return () => {
+      stream.close();
+    };
+  }, [apiClient, selected, visibleRuns]);
 
   const handleSelect = (artifact: ArtifactSummary) => {
     setSelectedKey(`${artifact.artifactType}::${artifact.targetId}`);
@@ -102,6 +163,26 @@ export function ControlConsole({
   const handleAction = (action: ApprovalAction, note?: string) => {
     if (selected !== undefined) {
       onAction?.(selected, action, note);
+      if (
+        apiClient !== undefined
+        && workspaceId !== undefined
+        && bookId !== undefined
+        && action !== 'delete'
+      ) {
+        void apiClient.submitCommand({
+          workspaceId,
+          bookId,
+          artifactType: selected.artifactType,
+          targetId: selected.targetId,
+          intent: action,
+          requestedBy: 'author-local',
+          approvalMode: 'manual',
+          idempotencyKey: `web-${action}-${selected.targetId}-${Date.now().toString(36)}`,
+        }).then(async () => {
+          setRemoteArtifacts(await apiClient.listArtifacts());
+          setRemoteRuns(await apiClient.listRuns());
+        });
+      }
     }
   };
 
@@ -110,7 +191,7 @@ export function ControlConsole({
       <aside className="control-console-sidebar">
         <h2>任务 / 审批队列</h2>
         <ApprovalQueue
-          artifacts={artifacts}
+          artifacts={visibleArtifacts}
           {...(selectedKey === undefined ? {} : { selectedKey })}
           onSelect={handleSelect}
         />
@@ -126,7 +207,7 @@ export function ControlConsole({
 
       <aside className="control-console-side-panel">
         <RunTracePanel
-          runs={runs}
+          runs={visibleRuns}
           {...(selected === undefined ? {} : { selectedArtifact: selected })}
         />
       </aside>

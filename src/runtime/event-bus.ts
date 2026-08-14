@@ -1,4 +1,5 @@
 export interface RunEvent {
+  readonly id?: number;
   readonly type: string;
   readonly runId: string;
   readonly emittedAt: string;
@@ -15,10 +16,21 @@ type Listener = (event: RunEvent) => void;
 export class RunEventBus {
   private readonly listenersByRun = new Map<string, Set<Listener>>();
   private readonly historyByRun = new Map<string, RunEvent[]>();
+  private readonly nextEventIdByRun = new Map<string, number>();
+  private readonly maxHistorySize: number;
+
+  constructor(maxHistorySize = 100) {
+    this.maxHistorySize = Math.max(1, Math.floor(maxHistorySize));
+  }
 
   publish(event: RunEvent): void {
-    const history = this.historyByRun.get(event.runId) ?? [];
-    history.push(event);
+    const nextEventId = (this.nextEventIdByRun.get(event.runId) ?? 0) + 1;
+    this.nextEventIdByRun.set(event.runId, nextEventId);
+    const eventWithId = { ...event, id: event.id ?? nextEventId };
+    const history = [...(this.historyByRun.get(event.runId) ?? []), eventWithId];
+    if (history.length > this.maxHistorySize) {
+      history.splice(0, history.length - this.maxHistorySize);
+    }
     this.historyByRun.set(event.runId, history);
 
     const listeners = this.listenersByRun.get(event.runId);
@@ -26,7 +38,7 @@ export class RunEventBus {
       return;
     }
     for (const listener of listeners) {
-      listener(event);
+      listener(eventWithId);
     }
   }
 
@@ -42,5 +54,13 @@ export class RunEventBus {
   history(runId: string): readonly RunEvent[] {
     const stored = this.historyByRun.get(runId);
     return stored === undefined ? [] : [...stored];
+  }
+
+  historyAfter(runId: string, lastEventId: number | undefined): readonly RunEvent[] {
+    const history = this.history(runId);
+    if (lastEventId === undefined) {
+      return history;
+    }
+    return history.filter((event) => (event.id ?? 0) > lastEventId);
   }
 }

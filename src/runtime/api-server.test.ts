@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { createApiServer } from './api-server';
+import { RunEventBus } from './event-bus';
 
 const BASE_ENVELOPE = {
   workspaceId: 'workspace-cybernovel-001',
@@ -95,6 +96,20 @@ describe('command envelope validation', () => {
     const body = await response.json();
     expect(body.code).toBe('workspace-invalid');
   });
+
+  test('dispatches a newly accepted artifact command to the workflow adapter', async () => {
+    const dispatched: string[] = [];
+    const { fetch } = createApiServer({
+      dispatchCommand: async (envelope) => {
+        dispatched.push(`${envelope.artifactType}:${envelope.targetId}`);
+      },
+    });
+    const response = await postJson(fetch, '/commands', { ...BASE_ENVELOPE, idempotencyKey: 'cmd-dispatch-001' });
+    await postJson(fetch, '/commands', { ...BASE_ENVELOPE, idempotencyKey: 'cmd-dispatch-001' });
+
+    expect(response.status).toBe(202);
+    expect(dispatched).toEqual(['chapter-outline:chapter-0042-outline']);
+  });
 });
 
 describe('run / artifact lookup', () => {
@@ -170,6 +185,47 @@ describe('sync routes', () => {
     const body = await response.json();
     expect(body.nextExpectedState).toBe('workspace-synced');
   });
+
+  test('dispatches synthetic review when an approved canonical artifact is edited', async () => {
+    const reviewRequests: string[] = [];
+    const characterMarkdown = (name: string) => `---
+id: char-sync-test
+name: ${name}
+status: active
+coreMotivation: survive
+worldview: pragmatic
+techLevel: tier-1
+---
+`;
+    const { fetch, store } = createApiServer({
+      reSyncStateOptions: { getActiveRuns: () => [] },
+      dispatchSyntheticReview: async (input) => {
+        reviewRequests.push(`${input.artifactType}:${input.targetId}`);
+      },
+    });
+    const base = {
+      workspaceId: 'workspace-sync-test',
+      bookId: 'book-sync-test',
+      requestedBy: 'author-local',
+      approvalMode: 'manual',
+      files: [{ path: 'state/characters/char-sync-test.md', content: characterMarkdown('初始') }],
+    };
+
+    await postJson(fetch, '/sync/re-sync-state', { ...base, idempotencyKey: 'sync-initial-001' });
+    store.upsertArtifact({
+      artifactType: 'character-update',
+      targetId: 'char-sync-test',
+      activeProposalId: 'proposal-sync-test',
+      proposalStatus: 'approved',
+    });
+    await postJson(fetch, '/sync/re-sync-state', {
+      ...base,
+      idempotencyKey: 'sync-edited-001',
+      files: [{ path: 'state/characters/char-sync-test.md', content: characterMarkdown('修改后') }],
+    });
+
+    expect(reviewRequests).toEqual(['character-update:char-sync-test']);
+  });
 });
 
 describe('SSE run stream', () => {
@@ -200,5 +256,24 @@ describe('SSE run stream', () => {
     }
     expect(nextBuffered).toContain('event: run.completed');
     await reader.cancel();
+  });
+
+  test('replays only events after Last-Event-ID and bounds event history', async () => {
+    const { fetch, eventBus } = createApiServer({ eventBus: new RunEventBus(2) });
+    eventBus.publish({ type: 'run.step.completed', runId: 'run-replay-001', emittedAt: '2026-08-14T00:00:00.000Z', data: { step: 1 } });
+    eventBus.publish({ type: 'run.step.completed', runId: 'run-replay-001', emittedAt: '2026-08-14T00:00:01.000Z', data: { step: 2 } });
+    eventBus.publish({ type: 'run.completed', runId: 'run-replay-001', emittedAt: '2026-08-14T00:00:02.000Z' });
+
+    expect(eventBus.history('run-replay-001')).toHaveLength(2);
+    const response = await fetch(new Request('http://local.test/runs/run-replay-001/stream', {
+      headers: { 'last-event-id': '2' },
+    }));
+    const reader = response.body!.getReader();
+    const { value } = await reader.read();
+    const text = new TextDecoder().decode(value);
+    await reader.cancel();
+    expect(text).toContain('event: run.completed');
+    expect(text).not.toContain('"step":2');
+    expect(text).toContain('id: 3');
   });
 });

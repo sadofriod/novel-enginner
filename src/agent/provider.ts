@@ -8,6 +8,9 @@
  * without touching agent assembly or reviewer code.
  */
 
+import { createOpenAI } from '@ai-sdk/openai';
+import { generateText } from 'ai';
+
 export const MODEL_TIER_VALUES = ['flagship', 'balanced', 'economy'] as const;
 
 export type ModelTier = (typeof MODEL_TIER_VALUES)[number];
@@ -53,12 +56,7 @@ const DEFAULT_OPENAI_MODEL_BY_TIER: Record<ModelTier, string> = {
   economy: 'gpt-4.1-nano',
 };
 
-/**
- * Default V1 provider. Resolution of the actual completion call is deferred to the `ai`
- * SDK's OpenAI integration at the call site that owns network access; this class is
- * responsible for the provider-facing contract (model id resolution, versioning) so
- * agent assembly and reviewer code do not need to know SDK details.
- */
+/** Default V1 provider backed by the AI SDK's OpenAI adapter. */
 export class OpenAiModelProvider implements ModelProvider {
   readonly providerId = 'openai';
   readonly providerVersion = '2024-v1';
@@ -84,12 +82,19 @@ export class OpenAiModelProvider implements ModelProvider {
       );
     }
 
-    // The actual network call is intentionally not performed here; callers that need a
-    // live completion should construct their own `@ai-sdk/openai` model using
-    // `resolveModelId` + the configured baseUrl/apiKey and invoke it directly. This keeps
-    // `OpenAiModelProvider` synchronously testable without network access.
+    const openai = createOpenAI({
+      apiKey: this.apiKey,
+      ...(this.baseUrl === undefined ? {} : { baseURL: this.baseUrl }),
+    });
+    const result = await generateText({
+      model: openai(this.resolveModelId(request.tier)),
+      ...(request.system === undefined ? {} : { system: request.system }),
+      prompt: request.prompt,
+      maxRetries: 0,
+    });
+
     return {
-      text: '',
+      text: result.text,
       modelId: this.resolveModelId(request.tier),
       providerVersion: this.providerVersion,
     };

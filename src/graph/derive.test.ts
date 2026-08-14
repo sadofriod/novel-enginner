@@ -30,6 +30,50 @@ knowledgeLedger:
 角色当前阶段为技术驱动型求生者。
 `;
 
+const FACT_MARKDOWN = `---
+id: fact-diode-origin-001
+statement: 二极管来自旧灯塔
+sourceRef: scene-0041-terminal-breach
+visibility: actor-known
+status: active
+---
+`;
+
+const FALSE_LEAD_FACT_MARKDOWN = `---
+id: fact-false-lead-002
+statement: 伪造日志中的错误来源
+sourceRef: scene-0038-forged-log
+visibility: actor-known
+status: active
+---
+`;
+
+const RESOURCE_MARKDOWN = `---
+id: res-relay-key
+name: 中继钥匙
+resourceType: physical
+ownerRef: faction-relay-syndicate
+holderRef: faction-relay-syndicate
+status: active
+---
+`;
+
+const VOLUME_MARKDOWN = `---
+id: volume-001
+title: 第一卷
+status: active
+sequenceNumber: 1
+goal: 找到二极管来源
+stage: rising-action
+chapterRoster:
+  - chapter-0041-outline
+targetChapterCount: 1
+requiredCluePayoffs:
+  - clue-diode-origin
+milestones: []
+---
+`;
+
 const FACTION_MARKDOWN = `---
 id: faction-relay-syndicate
 name: 中继辛迪加
@@ -114,6 +158,10 @@ emotionCurveStageIds:
 function buildSnapshot() {
   const files = [
     { path: 'state/characters/char-lin-mo.md', content: CHARACTER_MARKDOWN },
+    { path: 'state/facts/fact-diode-origin-001.md', content: FACT_MARKDOWN },
+    { path: 'state/facts/fact-false-lead-002.md', content: FALSE_LEAD_FACT_MARKDOWN },
+    { path: 'state/resources/res-relay-key.md', content: RESOURCE_MARKDOWN },
+    { path: 'state/volumes/volume-001.md', content: VOLUME_MARKDOWN },
     { path: 'state/factions/faction-relay-syndicate.md', content: FACTION_MARKDOWN },
     { path: 'state/locations/location-relay-station-9.md', content: LOCATION_MARKDOWN },
     { path: 'state/plot-clues/clue-diode-origin.md', content: PLOT_CLUE_MARKDOWN },

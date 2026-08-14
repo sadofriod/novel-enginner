@@ -1,7 +1,7 @@
 import type { WorkspaceValidity } from '../domain/values';
 
 import { MarkdownContractError, parseCanonicalMarkdown } from './markdown';
-import { resolveLayoutRuleForPath } from './layout';
+import { resolveLayoutRuleForPath, type CanonicalEntityKind } from './layout';
 
 export interface WorkspaceFileError {
   readonly path: string;
@@ -164,6 +164,128 @@ function ingestCanonicalFiles(
   return { changedPaths, errors, seenPaths };
 }
 
+interface EntityReferenceRule {
+  readonly field: string;
+  readonly targetKind: CanonicalEntityKind;
+}
+
+const ENTITY_REFERENCE_RULES: Readonly<Record<CanonicalEntitySnapshot['kind'], readonly EntityReferenceRule[]>> = {
+  book: [
+    { field: 'activeVolumeId', targetKind: 'volume' },
+    { field: 'globalPromises', targetKind: 'planning-anchor' },
+    { field: 'globalConstraints', targetKind: 'planning-anchor' },
+  ],
+  volume: [
+    { field: 'chapterRoster', targetKind: 'chapter-outline' },
+    { field: 'requiredCluePayoffs', targetKind: 'plot-clue' },
+    { field: 'milestones', targetKind: 'planning-anchor' },
+  ],
+  'chapter-outline': [
+    { field: 'volumeId', targetKind: 'volume' },
+    { field: 'activeClueIds', targetKind: 'plot-clue' },
+    { field: 'resolveClueIds', targetKind: 'plot-clue' },
+    { field: 'introduceClueIds', targetKind: 'plot-clue' },
+    { field: 'sceneSkeleton.locationId', targetKind: 'location' },
+    { field: 'sceneSkeleton.participantCharacterIds', targetKind: 'character' },
+  ],
+  'chapter-manuscript': [
+    { field: 'volumeId', targetKind: 'volume' },
+    { field: 'basedOnOutlineId', targetKind: 'chapter-outline' },
+  ],
+  character: [
+    { field: 'knowledgeLedger.factId', targetKind: 'fact' },
+    { field: 'relationshipIds', targetKind: 'relationship' },
+    { field: 'resourceIds', targetKind: 'resource' },
+  ],
+  fact: [],
+  relationship: [],
+  resource: [],
+  faction: [
+    { field: 'resourceIds', targetKind: 'resource' },
+    { field: 'relationshipIds', targetKind: 'relationship' },
+    { field: 'knownByCharacters', targetKind: 'character' },
+  ],
+  location: [
+    { field: 'parentLocation', targetKind: 'location' },
+    { field: 'controlFaction', targetKind: 'faction' },
+  ],
+  'tech-rule': [],
+  'plot-clue': [
+    { field: 'resolveTargetVolume', targetKind: 'volume' },
+    { field: 'knownByCharacterIds', targetKind: 'character' },
+    { field: 'misledCharacterIds', targetKind: 'character' },
+    { field: 'dependencyClueIds', targetKind: 'plot-clue' },
+    { field: 'conflictClueIds', targetKind: 'plot-clue' },
+  ],
+  'planning-anchor': [
+    { field: 'ownerRef', targetKind: 'character' },
+    { field: 'relatedClueIds', targetKind: 'plot-clue' },
+    { field: 'targetChapterIds', targetKind: 'chapter-outline' },
+  ],
+};
+
+function valuesForReference(value: unknown): readonly string[] {
+  if (typeof value === 'string') {
+    return [value];
+  }
+  if (Array.isArray(value) && value.every((item): item is string => typeof item === 'string')) {
+    return value;
+  }
+  return [];
+}
+
+function valuesForReferenceField(data: Record<string, unknown>, field: string): readonly string[] {
+  const fields = field.split('.');
+  const resolve = (value: unknown, remainingFields: readonly string[]): readonly string[] => {
+    if (remainingFields.length === 0) {
+      return valuesForReference(value);
+    }
+    if (Array.isArray(value)) {
+      return value.flatMap((item) => resolve(item, remainingFields));
+    }
+    if (typeof value !== 'object' || value === null) {
+      return [];
+    }
+    const [nextField, ...restFields] = remainingFields;
+    return resolve((value as Record<string, unknown>)[nextField ?? ''], restFields);
+  };
+
+  return resolve(data, fields);
+}
+
+function validateEntityReferences(
+  entities: ReadonlyMap<string, CanonicalEntitySnapshot>,
+): readonly WorkspaceFileError[] {
+  const targetsByKind = new Map<CanonicalEntityKind, Set<string>>();
+  for (const entity of entities.values()) {
+    const ids = targetsByKind.get(entity.kind as CanonicalEntityKind) ?? new Set<string>();
+    const entityId = (entity.data as { id?: unknown }).id;
+    if (typeof entityId === 'string') {
+      ids.add(entityId);
+    }
+    targetsByKind.set(entity.kind as CanonicalEntityKind, ids);
+  }
+
+  const errors: WorkspaceFileError[] = [];
+  for (const entity of entities.values()) {
+    const rules = ENTITY_REFERENCE_RULES[entity.kind as CanonicalEntityKind] ?? [];
+    const data = entity.data as Record<string, unknown>;
+    for (const rule of rules) {
+      const targetIds = valuesForReferenceField(data, rule.field);
+      const knownTargetIds = targetsByKind.get(rule.targetKind) ?? new Set<string>();
+      for (const targetId of targetIds) {
+        if (!knownTargetIds.has(targetId)) {
+          errors.push({
+            path: entity.path,
+            reason: `Reference "${targetId}" in ${rule.field} does not resolve to a ${rule.targetKind} entity.`,
+          });
+        }
+      }
+    }
+  }
+  return errors;
+}
+
 function buildSnapshot(
   validity: WorkspaceValidity,
   previousSnapshot: WorkspaceSnapshot | undefined,
@@ -183,6 +305,17 @@ export function reSyncState(
   const entities = new Map<string, CanonicalEntitySnapshot>(previousSnapshot?.entities ?? []);
   const { changedPaths, errors, seenPaths } = ingestCanonicalFiles(files, entities);
   removeDeletedEntities(entities, seenPaths, changedPaths);
+  const referenceErrors = validateEntityReferences(entities);
+  const invalidReferencePaths = new Set(referenceErrors.map((error) => error.path));
+  for (const path of invalidReferencePaths) {
+    const previousEntity = previousSnapshot?.entities.get(path);
+    if (previousEntity === undefined) {
+      entities.delete(path);
+    } else {
+      entities.set(path, previousEntity);
+    }
+  }
+  errors.push(...referenceErrors);
 
   const validity = resolveValidity(errors, changedPaths);
   const snapshot = buildSnapshot(validity, previousSnapshot, entities);

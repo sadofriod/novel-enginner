@@ -92,7 +92,7 @@ function deriveCharacterNodesAndEdges(
       canonicalKind: 'character',
     });
 
-    const ledger: readonly BeliefRecord[] = character.knowledgeLedger ?? character.knownFacts ?? [];
+    const ledger: readonly BeliefRecord[] = character.knowledgeLedger ?? [];
     for (const record of ledger) {
       const edgeType: GraphEdgeType = record.beliefState === 'misunderstood' ? 'misunderstands' : 'knows';
       pushEdge(edges, seenEdgeIds, edgeType, character.id, record.factId, record.sourceRef);

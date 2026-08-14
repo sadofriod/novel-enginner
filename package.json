@@ -4,8 +4,15 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev": "bun run src/runtime/server.ts",
+    "start": "bun run src/runtime/server.ts",
+    "cli": "bun run src/runtime/cli.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "prisma migrate deploy",
+    "db:generate": "prisma generate"
   },
   "keywords": [],
   "author": "",

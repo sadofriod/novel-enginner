@@ -52,7 +52,10 @@ export class RuntimeStore {
   private readonly commandIdByIdempotencyKey = new Map<string, string>();
   private readonly runsById = new Map<string, RunRecord>();
   private readonly artifactsByKey = new Map<string, ArtifactSummary>();
-  private lastKnownSnapshot: import('../workspace/sync-engine').WorkspaceSnapshot | undefined;
+  private readonly lastKnownSnapshotByWorkspaceId = new Map<
+    string,
+    import('../workspace/sync-engine').WorkspaceSnapshot
+  >();
   private readonly syncSessionByWorkspaceId = new Map<string, WorkspaceSyncSession>();
 
   findCommandByIdempotencyKey(idempotencyKey: string): CommandRecord | undefined {
@@ -96,13 +99,13 @@ export class RuntimeStore {
   }
 
   /** Returns the last workspace snapshot produced by a `re-sync-state` call. */
-  getLastKnownSnapshot(): import('../workspace/sync-engine').WorkspaceSnapshot | undefined {
-    return this.lastKnownSnapshot;
+  getLastKnownSnapshot(workspaceId: string): import('../workspace/sync-engine').WorkspaceSnapshot | undefined {
+    return this.lastKnownSnapshotByWorkspaceId.get(workspaceId);
   }
 
   /** Stores the latest workspace snapshot after a successful `re-sync-state` pass. */
-  setLastKnownSnapshot(snapshot: import('../workspace/sync-engine').WorkspaceSnapshot): void {
-    this.lastKnownSnapshot = snapshot;
+  setLastKnownSnapshot(workspaceId: string, snapshot: import('../workspace/sync-engine').WorkspaceSnapshot): void {
+    this.lastKnownSnapshotByWorkspaceId.set(workspaceId, snapshot);
   }
 
   /**
@@ -115,7 +118,7 @@ export class RuntimeStore {
     if (existing !== undefined) {
       return existing;
     }
-    const session = new WorkspaceSyncSession(this.lastKnownSnapshot);
+    const session = new WorkspaceSyncSession(this.getLastKnownSnapshot(workspaceId));
     this.syncSessionByWorkspaceId.set(workspaceId, session);
     return session;
   }

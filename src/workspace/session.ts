@@ -13,6 +13,7 @@ export interface WorkspaceSessionState {
   readonly snapshot: WorkspaceSnapshot;
   readonly pendingCommit?: SyntheticCommit;
   readonly errors: ReSyncStateResult['errors'];
+  readonly changedPaths: readonly string[];
 }
 
 /**
@@ -42,7 +43,7 @@ export class WorkspaceSyncSession {
       this.pendingChangedPaths.add(path);
     }
 
-    return this.toState();
+    return { ...this.toState(), changedPaths: result.changedPaths };
   }
 
   /**
@@ -78,6 +79,7 @@ export class WorkspaceSyncSession {
       validity: this.validity,
       snapshot: this.snapshot ?? { snapshotId: 'snap-0000', entities: new Map() },
       errors: this.errors,
+      changedPaths: [],
     };
     if (this.pendingChangedPaths.size === 0) {
       return base;

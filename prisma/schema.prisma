@@ -30,6 +30,25 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Accepted command envelope records are persisted separately from run execution
+// state so idempotency survives process restarts.
+model Command {
+  id             String   @id @default(uuid())
+  commandId      String   @unique
+  runId          String   @unique
+  workspaceId    String
+  bookId         String
+  idempotencyKey String
+  status         String
+  acceptedAt     DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([runId])
+  @@map("commands")
+}
+
 // ---------------------------------------------------------------------------
 // Proposals
 // ---------------------------------------------------------------------------
@@ -73,7 +92,10 @@ model Run {
   workspaceId    String
   bookId         String
   commandIntent  String
+  artifactType   String?
+  targetId       String?
   status         String
+  nextExpectedState String?
   requestedBy    String
   idempotencyKey String
   basedOnCanonicalVersion String?

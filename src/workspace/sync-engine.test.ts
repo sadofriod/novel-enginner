@@ -15,13 +15,6 @@ status: active
 coreMotivation: 逃离天鹅座引力阱
 worldview: engineering-pragmatist
 techLevel: tier-3
-knowledgeLedger:
-  - factId: fact-diode-origin-001
-    beliefState: known
-    sourceRef: scene-0041-terminal-breach
-    chapterAcquired: 41
-    visibility: actor-known
-    confidence: 0.92
 ---
 
 # Summary
@@ -101,6 +94,15 @@ describe('reSyncState', () => {
   test('ignores paths outside the canonical layout', () => {
     const result = reSyncState([{ path: 'runtime/cache/foo.json', content: '{}' }]);
     expect(result.validity).toBe('clean');
+    expect(result.snapshot.entities.size).toBe(0);
+  });
+
+  test('marks unknown canonical references invalid and preserves the last good entity', () => {
+    const validCharacter = VALID_CHARACTER_MARKDOWN.replace('techLevel: tier-3', 'techLevel: tier-3\nrelationshipIds:\n  - rel-missing');
+    const result = reSyncState([{ path: 'state/characters/char-lin-mo.md', content: validCharacter }]);
+
+    expect(result.validity).toBe('invalid');
+    expect(result.errors[0]?.reason).toContain('rel-missing');
     expect(result.snapshot.entities.size).toBe(0);
   });
 });

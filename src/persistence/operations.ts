@@ -8,6 +8,8 @@
  * override audits, capability snapshots) is persisted via Prisma.
  */
 import type { Proposal, ReviewerResult, OverrideAudit, CapabilityRegistrationState } from '../domain';
+import type { ProposalArtifactType } from '../domain/values';
+import type { CommandRecord, RunRecord } from '../runtime/store';
 
 import { prisma } from './client';
 import {
@@ -18,6 +20,96 @@ import {
   toReviewerResultCreateInput,
   type ProposalRow,
 } from './mappers';
+
+export async function persistCommand(
+  workspaceId: string,
+  bookId: string,
+  command: CommandRecord,
+): Promise<void> {
+  await prisma.command.upsert({
+    where: { commandId: command.commandId },
+    create: {
+      commandId: command.commandId,
+      runId: command.runId,
+      workspaceId,
+      bookId,
+      idempotencyKey: command.idempotencyKey,
+      status: command.status,
+      acceptedAt: new Date(command.acceptedAt),
+    },
+    update: {
+      status: command.status,
+    },
+  });
+}
+
+export async function persistRun(
+  run: RunRecord,
+  commandIntent: string,
+  requestedBy: string,
+  idempotencyKey: string,
+  basedOnCanonicalVersion?: string,
+): Promise<void> {
+  await prisma.run.upsert({
+    where: { runId: run.runId },
+    create: {
+      runId: run.runId,
+      workspaceId: run.workspaceId,
+      bookId: run.bookId,
+      commandIntent,
+      ...(run.artifactType !== undefined ? { artifactType: run.artifactType } : {}),
+      ...(run.targetId !== undefined ? { targetId: run.targetId } : {}),
+      status: run.status,
+      nextExpectedState: run.nextExpectedState,
+      requestedBy,
+      idempotencyKey,
+      ...(basedOnCanonicalVersion !== undefined ? { basedOnCanonicalVersion } : {}),
+    },
+    update: {
+      status: run.status,
+    },
+  });
+}
+
+export async function findPersistedRun(runId: string): Promise<RunRecord | undefined> {
+  const row = await prisma.run.findUnique({ where: { runId } });
+  if (row === null) {
+    return undefined;
+  }
+  return {
+    runId: row.runId,
+    commandId: '',
+    workspaceId: row.workspaceId,
+    bookId: row.bookId,
+    ...(row.artifactType !== null
+      ? { artifactType: row.artifactType as NonNullable<RunRecord['artifactType']> }
+      : {}),
+    ...(row.targetId !== null ? { targetId: row.targetId } : {}),
+    status: row.status,
+    nextExpectedState: row.nextExpectedState ?? 'unknown',
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function findPersistedCommandByIdempotencyKey(
+  workspaceId: string,
+  idempotencyKey: string,
+): Promise<CommandRecord | undefined> {
+  const row = await prisma.command.findUnique({
+    where: { workspaceId_idempotencyKey: { workspaceId, idempotencyKey } },
+  });
+  if (row === null) {
+    return undefined;
+  }
+  return {
+    commandId: row.commandId,
+    runId: row.runId,
+    idempotencyKey: row.idempotencyKey,
+    status: row.status,
+    acceptedAt: row.acceptedAt.toISOString(),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Proposals
@@ -34,10 +126,10 @@ export async function persistProposal(
     create: data,
     update: {
       status: data.status,
-      latestReviewResultId: data.latestReviewResultId,
-      overrideAuditId: data.overrideAuditId,
-      supersedesProposalId: data.supersedesProposalId,
-      bundledDiffRefs: data.bundledDiffRefs,
+      ...(data.latestReviewResultId !== undefined ? { latestReviewResultId: data.latestReviewResultId } : {}),
+      ...(data.overrideAuditId !== undefined ? { overrideAuditId: data.overrideAuditId } : {}),
+      ...(data.supersedesProposalId !== undefined ? { supersedesProposalId: data.supersedesProposalId } : {}),
+      ...(data.bundledDiffRefs !== undefined ? { bundledDiffRefs: data.bundledDiffRefs } : {}),
     },
   });
 }
@@ -58,6 +150,23 @@ export async function listActiveProposalsForWorkspace(workspaceId: string): Prom
     orderBy: { createdAt: 'asc' },
   });
   return rows.map((row: unknown) => fromProposalRow(row as unknown as ProposalRow));
+}
+
+export async function findActiveProposalForTarget(
+  workspaceId: string,
+  artifactType: ProposalArtifactType,
+  targetId: string,
+): Promise<Proposal | undefined> {
+  const row = await prisma.proposal.findFirst({
+    where: {
+      workspaceId,
+      artifactType,
+      targetId,
+      status: { notIn: ['rejected', 'superseded', 'exported', 'deleted'] },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  return row === null ? undefined : fromProposalRow(row as unknown as ProposalRow);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +225,7 @@ export async function persistCapabilitySnapshot(
     create: data,
     update: {
       status: data.status,
-      details: data.details,
+      ...(data.details !== undefined ? { details: data.details } : {}),
     },
   });
 }

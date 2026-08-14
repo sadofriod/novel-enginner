@@ -165,6 +165,57 @@ export function discoverMcpCapabilities(mcpConfig: McpConfigFile): readonly Disc
   }));
 }
 
+export type CapabilityDiscoverySources = {
+  readonly mcpConfig?: McpConfigFile;
+  readonly skillFiles?: readonly string[];
+  readonly agentFiles?: readonly string[];
+  readonly promptPackFiles?: readonly string[];
+};
+
+function capabilityIdFromPath(filePath: string): string {
+  const fileName = filePath.split('/').pop() ?? filePath;
+  return fileName
+    .replace(/\.(md|markdown|json|yaml|yml|ts|tsx|js|jsx)$/i, '')
+    .replace(/\.(prompt|agent|skill)$/i, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+}
+
+function discoverFiles(
+  files: readonly string[],
+  type: Exclude<CapabilityType, 'mcp' | 'prompt-pack'> | 'prompt-pack',
+): readonly DiscoveredCapabilitySource[] {
+  return files
+    .map((source) => ({
+      id: capabilityIdFromPath(source),
+      type,
+      source,
+    }))
+    .filter((entry) => entry.id.length > 0);
+}
+
+/** Discovers all non-authoritative capability sources without enabling any of them. */
+export function discoverCapabilitiesFromAllSources(
+  sources: CapabilityDiscoverySources,
+): readonly DiscoveredCapabilitySource[] {
+  const discovered = [
+    ...discoverMcpCapabilities(sources.mcpConfig ?? {}),
+    ...discoverFiles(sources.skillFiles ?? [], 'skill'),
+    ...discoverFiles(sources.agentFiles ?? [], 'agent'),
+    ...discoverFiles(sources.promptPackFiles ?? [], 'prompt-pack'),
+  ];
+  const seen = new Set<string>();
+  return discovered.filter((entry) => {
+    const key = `${entry.type}:${entry.id}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
 export interface CapabilityReconciliationResult {
   readonly snapshots: readonly CapabilityRegistrationState[];
   readonly blockingCapabilityIds: readonly string[];
@@ -281,9 +332,10 @@ export function assembleAgentCapabilities(
 export function validateCapabilitiesOrThrow(
   registryMarkdown: string,
   mcpConfigJson: { readonly servers?: Record<string, unknown> },
+  sources: Omit<CapabilityDiscoverySources, 'mcpConfig'> = {},
 ): CapabilityReconciliationResult {
   const registered = parseCapabilityRegistry(registryMarkdown);
-  const discovered = discoverMcpCapabilities(mcpConfigJson);
+  const discovered = discoverCapabilitiesFromAllSources({ ...sources, mcpConfig: mcpConfigJson });
   const result = reconcileCapabilities(registered, discovered);
 
   if (result.blockingCapabilityIds.length > 0) {

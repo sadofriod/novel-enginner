@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: novel_enginner
+      POSTGRES_USER: novel
+      POSTGRES_PASSWORD: novel
+    ports:
+      - "55432:5432"
+    volumes:
+      - novel-enginner-postgres:/var/lib/postgresql/data
+
+volumes:
+  novel-enginner-postgres:

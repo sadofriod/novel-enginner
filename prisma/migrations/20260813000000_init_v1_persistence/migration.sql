@@ -1,0 +1,3 @@
+-- Intentionally empty compatibility migration.
+-- The V1 persistence tables are defined by the preceding migrations; this
+-- migration remains as an explicit checkpoint for the V1 schema milestone.

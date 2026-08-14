@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { ArtifactSummary, RunRecord } from '../runtime/store';
 import { ApiClient } from './api-client';
+import { GraphCanvas } from './app/components/GraphCanvas';
 import { DerivedGraphView } from './app/components/DerivedGraphView';
 import { ApprovalQueue } from './components/ApprovalQueue';
 import { ArtifactDetail, type ApprovalAction } from './components/ArtifactDetail';
@@ -38,20 +39,52 @@ export function RunTracePanel({ runs = [], selectedArtifact }: RunTracePanelProp
     );
   }, [runs, selectedArtifact]);
 
+  const STATUS_COLORS: Record<string, string> = {
+    running: '#1976d2',
+    completed: '#2e7d32',
+    failed: '#c62828',
+    aborted: '#f57f17',
+  };
+
   return (
-    <section aria-label="运行追溯" className="run-trace-panel">
-      <header>
-        <h3>运行追溯</h3>
-      </header>
+    <section aria-label="运行追溯">
+      <h3 style={{ margin: '0 0 10px', fontSize: '14px', fontWeight: 700, color: '#212121' }}>运行追溯</h3>
       {visibleRuns.length === 0 ? (
-        <p>暂无关联运行记录。</p>
+        <p style={{ fontSize: '13px', color: '#9e9e9e', margin: 0 }}>暂无关联运行记录。</p>
       ) : (
-        <ul className="run-trace-list">
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '6px' }}>
           {visibleRuns.map((run) => (
-            <li key={run.runId}>
-              <strong>{run.runId}</strong>
-              <span>{run.status}</span>
-              <small>{run.nextExpectedState}</small>
+            <li
+              key={run.runId}
+              style={{
+                padding: '8px 10px',
+                border: '1px solid #e0e0e0',
+                borderRadius: '4px',
+                fontSize: '12px',
+                display: 'grid',
+                gap: '3px',
+              }}
+            >
+              <span style={{ fontWeight: 600, fontFamily: 'monospace', color: '#212121', wordBreak: 'break-all' }}>
+                {run.runId}
+              </span>
+              <span
+                style={{
+                  display: 'inline-block',
+                  padding: '1px 6px',
+                  borderRadius: '4px',
+                  background: '#f5f5f5',
+                  color: STATUS_COLORS[run.status] ?? '#616161',
+                  fontWeight: 600,
+                  fontSize: '11px',
+                  width: 'fit-content',
+                }}
+              >
+                {run.status}
+              </span>
+              {run.nextExpectedState !== undefined && (
+                <small style={{ color: '#9e9e9e' }}>{run.nextExpectedState}</small>
+              )}
             </li>
           ))}
         </ul>
@@ -191,9 +224,30 @@ export function ControlConsole({
   };
 
   return (
-    <div className="control-console" aria-label="Web Control Console">
-      <aside className="control-console-sidebar">
-        <h2>任务 / 审批队列</h2>
+    <div
+      aria-label="Web Control Console"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '260px 1fr 300px',
+        gap: '12px',
+        alignItems: 'start',
+        minHeight: '100vh',
+        padding: '16px',
+        background: '#f5f7fb',
+        boxSizing: 'border-box',
+      }}
+    >
+      <aside
+        style={{
+          background: '#fff',
+          border: '1px solid #e0e0e0',
+          borderRadius: '4px',
+          padding: '14px',
+        }}
+      >
+        <h2 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: 700, color: '#212121' }}>
+          任务 / 审批队列
+        </h2>
         <ApprovalQueue
           artifacts={visibleArtifacts}
           {...(selectedKey === undefined ? {} : { selectedKey })}
@@ -201,11 +255,16 @@ export function ControlConsole({
         />
       </aside>
 
-      <main className="control-console-main">
+      <main
+        style={{
+          display: 'grid',
+          gap: '12px',
+        }}
+      >
         {selected === undefined ? (
-          <p>暂无可审批工件。</p>
+          <p style={{ color: '#9e9e9e', fontSize: '14px' }}>暂无可审批工件。</p>
         ) : (
-          <div className="control-console-detail-stack">
+          <>
             <ArtifactDetail artifact={selected} onAction={handleAction} pending={selected.proposalStatus === 'commit-blocked' || selected.proposalStatus === 'waiting-sync'} />
             <ProposalDiffView
               proposalId={selected.activeProposalId ?? 'proposal-missing'}
@@ -220,17 +279,76 @@ export function ControlConsole({
               entries={selected.bundledDiff ?? []}
             />
             {selected.reviewerResult !== undefined && <ReviewerResultView result={selected.reviewerResult} />}
-            <DerivedGraphView graph={selected.derivedGraph} />
-          </div>
+            {selected.derivedGraph !== undefined ? (
+              <InteractiveDerivedGraph graph={selected.derivedGraph} />
+            ) : (
+              <DerivedGraphView graph={undefined} />
+            )}
+          </>
         )}
       </main>
 
-      <aside className="control-console-side-panel">
+      <aside
+        style={{
+          background: '#fff',
+          border: '1px solid #e0e0e0',
+          borderRadius: '4px',
+          padding: '14px',
+        }}
+      >
         <RunTracePanel
           runs={visibleRuns}
           {...(selected === undefined ? {} : { selectedArtifact: selected })}
         />
       </aside>
     </div>
+  );
+}
+
+function InteractiveDerivedGraph({ graph }: { readonly graph: NonNullable<ArtifactSummary['derivedGraph']> }) {
+  const STATUS_STYLES: Record<string, { background: string; color: string; border: string }> = {
+    ready:      { background: '#e8f5e9', color: '#2e7d32', border: '#a5d6a7' },
+    stale:      { background: '#fff8e1', color: '#f57f17', border: '#ffe082' },
+    rebuilding: { background: '#e3f2fd', color: '#1565c0', border: '#90caf9' },
+  };
+  const statusStyle = STATUS_STYLES[graph.status] ?? { background: '#f5f5f5', color: '#616161', border: '#e0e0e0' };
+
+  return (
+    <section
+      aria-label="剧情图谱 / 派生状态"
+      style={{ border: '1px solid #e0e0e0', borderRadius: '4px', padding: '14px', background: '#fff', display: 'grid', gap: '12px' }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#212121' }}>剧情图谱 / 派生状态</h3>
+        <span
+          style={{
+            display: 'inline-block',
+            padding: '2px 10px',
+            borderRadius: '4px',
+            fontSize: '11px',
+            fontWeight: 600,
+            background: statusStyle.background,
+            color: statusStyle.color,
+            border: `1px solid ${statusStyle.border}`,
+          }}
+        >
+          {graph.status}
+        </span>
+        <span style={{ fontSize: '12px', color: '#9e9e9e' }}>
+          {graph.nodes.length} 个节点 / {graph.edges.length} 条边
+        </span>
+      </div>
+      {graph.nodes.length > 0 && (
+        <GraphCanvas graph={graph} height={420} />
+      )}
+      {graph.status === 'stale' && (
+        <div
+          role="status"
+          style={{ padding: '8px 12px', borderRadius: '4px', border: '1px solid #ffe082', background: '#fff8e1', fontSize: '12px', color: '#f57f17' }}
+        >
+          图谱快照尚未追平最新 canonical 版本，当前展示的节点/边可能不是最新状态。
+        </div>
+      )}
+    </section>
   );
 }

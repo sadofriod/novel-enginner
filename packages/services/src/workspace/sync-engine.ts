@@ -173,6 +173,14 @@ interface EntityReferenceRule {
 }
 
 const ENTITY_REFERENCE_RULES: Readonly<Record<CanonicalEntitySnapshot['kind'], readonly EntityReferenceRule[]>> = {
+  'project-brief': [],
+  'world-foundation': [
+    { field: 'projectBriefRef', targetKind: 'project-brief' },
+  ],
+  'story-blueprint': [
+    { field: 'projectBriefRef', targetKind: 'project-brief' },
+    { field: 'worldFoundationRef', targetKind: 'world-foundation' },
+  ],
   book: [
     { field: 'activeVolumeId', targetKind: 'volume' },
     { field: 'globalPromises', targetKind: 'planning-anchor' },
@@ -292,6 +300,68 @@ function validateEntityReferences(
   return errors;
 }
 
+function validateChapterContracts(
+  entities: ReadonlyMap<string, CanonicalEntitySnapshot>,
+): readonly WorkspaceFileError[] {
+  const outlineById = new Map<string, CanonicalEntitySnapshot>();
+  const manuscripts: CanonicalEntitySnapshot[] = [];
+
+  for (const entity of entities.values()) {
+    if (entity.kind === 'chapter-outline') {
+      const id = (entity.data as { id?: unknown }).id;
+      if (typeof id === 'string') {
+        outlineById.set(id, entity);
+      }
+    } else if (entity.kind === 'chapter-manuscript') {
+      manuscripts.push(entity);
+    }
+  }
+
+  const errors: WorkspaceFileError[] = [];
+  for (const manuscript of manuscripts) {
+    const manuscriptData = manuscript.data as { chapterNumber?: unknown; displayTitle?: unknown; basedOnOutlineId?: unknown };
+    if (typeof manuscriptData.basedOnOutlineId !== 'string') {
+      continue;
+    }
+    const outline = outlineById.get(manuscriptData.basedOnOutlineId);
+    if (outline === undefined) {
+      continue;
+    }
+    const outlineData = outline.data as { chapterNumber?: unknown; displayTitle?: unknown; status?: unknown };
+
+    if (
+      outlineData.displayTitle !== undefined &&
+      manuscriptData.displayTitle !== undefined &&
+      outlineData.displayTitle !== manuscriptData.displayTitle
+    ) {
+      errors.push({
+        path: manuscript.path,
+        reason: `Chapter ${manuscriptData.chapterNumber ?? 'unknown'} manuscript displayTitle must match the approved outline displayTitle.`,
+      });
+    }
+
+    if (
+      typeof manuscriptData.chapterNumber === 'number' &&
+      typeof outlineData.chapterNumber === 'number' &&
+      manuscriptData.chapterNumber !== outlineData.chapterNumber
+    ) {
+      errors.push({
+        path: manuscript.path,
+        reason: `Chapter ${manuscriptData.chapterNumber} manuscript must bind the matching outline chapter number.`,
+      });
+    }
+
+    if (outlineData.status !== 'approved') {
+      errors.push({
+        path: manuscript.path,
+        reason: `Chapter ${manuscriptData.chapterNumber ?? 'unknown'} manuscript must bind an approved outline before canonical commit.`,
+      });
+    }
+  }
+
+  return errors;
+}
+
 function resolveInvalidReferencePaths(
   entities: Map<string, CanonicalEntitySnapshot>,
   previousSnapshot: WorkspaceSnapshot | undefined,
@@ -331,6 +401,9 @@ export function reSyncState(
   const referenceErrors = validateEntityReferences(entities);
   resolveInvalidReferencePaths(entities, previousSnapshot, referenceErrors);
   errors.push(...referenceErrors);
+  const chapterContractErrors = validateChapterContracts(entities);
+  resolveInvalidReferencePaths(entities, previousSnapshot, chapterContractErrors);
+  errors.push(...chapterContractErrors);
 
   const validity = resolveValidity(errors, changedPaths);
   const snapshot = buildSnapshot(validity, previousSnapshot, entities);

@@ -225,6 +225,9 @@ describe('run drift abort', () => {
 
 describe('artifact workflow skeletons', () => {
   test('resolveArtifactWorkflow finds registered artifact types', () => {
+    expect(resolveArtifactWorkflow('project-brief')?.artifactType).toBe('project-brief');
+    expect(resolveArtifactWorkflow('world-foundation')?.artifactType).toBe('world-foundation');
+    expect(resolveArtifactWorkflow('story-blueprint')?.artifactType).toBe('story-blueprint');
     expect(resolveArtifactWorkflow('chapter-manuscript')?.artifactType).toBe('chapter-manuscript');
     expect(resolveArtifactWorkflow('volume-outline')?.artifactType).toBe('volume-outline');
     expect(resolveArtifactWorkflow('world-change')?.artifactType).toBe('world-change');

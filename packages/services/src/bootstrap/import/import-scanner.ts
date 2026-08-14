@@ -1,260 +1,86 @@
-export interface FileEntry {
-  path: string;
-  filename: string;
-  extension: string;
-  size: number;
-  isDirectory: boolean;
-  children?: readonly FileEntry[];
+import type { BootstrapImportFileEntry } from '../types';
+
+export interface ScanResult {
+  readonly entries: ReadonlyArray<BootstrapImportFileEntry>;
+  readonly diagnostics: ReadonlyArray<string>;
+  readonly summary: string;
 }
 
-export interface EntityRecognitionResult {
-  type: 'project-brief' | 'world-foundation' | 'story-blueprint' | 'volume' | 'chapter' | 'reference' | 'unknown';
-  confidence: number;
-  suggestedMapping?: string;
-  reason: string;
+function toBasename(path: string): string {
+  return path.split('/').at(-1)?.toLowerCase() ?? path.toLowerCase();
 }
 
-export interface FileScanResult {
-  path: string;
-  recognition: EntityRecognitionResult;
-  diagnostics: readonly string[];
+function detectProjectBrief(name: string): number {
+  return name.includes('project-brief') || name.includes('brief') ? 0.95 : 0;
 }
 
-export interface ImportScanData {
-  sourceDirectory: string;
-  scannedAt: Date;
-  totalFiles: number;
-  files: readonly FileScanResult[];
-  suggestions: {
-    projectBriefMapping?: string;
-    worldFoundationMapping?: string;
-    storyBlueprintMapping?: string;
-    volumeMappings: readonly { volumeNumber: number; filePath: string }[];
-    unmappableFiles: readonly string[];
+function detectWorldFoundation(name: string): number {
+  return name.includes('world') && name.includes('foundation') ? 0.94 : 0;
+}
+
+function detectStoryBlueprint(name: string): number {
+  return /story.*blueprint|blueprint.*story/.test(name) ? 0.93 : 0;
+}
+
+function detectVolume(name: string): number {
+  return /(?:volume|vol|book|v)[^\n]*\d+/.test(name) ? 0.9 : 0;
+}
+
+function detectChapter(name: string): number {
+  return /(?:chapter|chap)[^\n]*\d+/.test(name) ? 0.92 : 0;
+}
+
+function detectReference(name: string): number {
+  return name.includes('reference') || name.includes('resources') ? 0.75 : 0;
+}
+
+export function recognizeEntity(filePath: string): BootstrapImportFileEntry | undefined {
+  const name = toBasename(filePath);
+  const detectors = [
+    { detector: detectProjectBrief, kind: 'project-brief' as const, target: 'state/book/project-brief.md' },
+    { detector: detectWorldFoundation, kind: 'world-foundation' as const, target: 'state/world/world-foundation.md' },
+    { detector: detectStoryBlueprint, kind: 'story-blueprint' as const, target: 'state/book/story-blueprint.md' },
+    { detector: detectVolume, kind: 'volume' as const, target: 'state/volumes/volume-1.md' },
+    { detector: detectChapter, kind: 'chapter' as const, target: 'state/chapters/chapter-1.md' },
+    { detector: detectReference, kind: 'reference' as const, target: 'references/imported/reference.md' },
+  ];
+
+  for (const candidate of detectors) {
+    const confidence = candidate.detector(name);
+    if (confidence > 0) {
+      return {
+        sourcePath: filePath,
+        detectedKind: candidate.kind,
+        canonicalTarget: candidate.target,
+        confidence,
+      };
+    }
+  }
+
+  return undefined;
+}
+
+export function buildMappingSuggestions(paths: ReadonlyArray<string>): ReadonlyArray<BootstrapImportFileEntry> {
+  return paths.map((path) => recognizeEntity(path) ?? {
+    sourcePath: path,
+    detectedKind: 'reference',
+    canonicalTarget: 'references/imported/reference.md',
+    confidence: 0.2,
+    notes: '未识别到标准典型工件，保留为参考材料。',
+  });
+}
+
+export function scanDirectory(paths: ReadonlyArray<string>): ScanResult {
+  const entries = buildMappingSuggestions(paths);
+  const diagnostics = entries.map((entry) => {
+    if (entry.confidence < 0.5) {
+      return `文件 ${entry.sourcePath} 未可靠识别，建议人工确认映射。`;
+    }
+    return `文件 ${entry.sourcePath} 识别为 ${entry.detectedKind}，置信度 ${entry.confidence.toFixed(2)}。`;
+  });
+  return {
+    entries,
+    diagnostics,
+    summary: `扫描 ${paths.length} 个文件，识别出 ${entries.filter((entry) => entry.confidence >= 0.5).length} 个高置信映射建议。`,
   };
-}
-
-/**
- * Scans existing Markdown directory structure for import flow.
- * Performs entity recognition and provides mapping suggestions.
- */
-export class BootstrapImportScanner {
-  /**
-   * Recursively scan directory structure.
-   * Returns flattened list of files with entity type recognition.
-   */
-  async scanDirectory(sourceDir: string): Promise<ImportScanData> {
-    // Placeholder: actual implementation reads filesystem
-    // and performs entity recognition on Markdown files
-    return {
-      sourceDirectory: sourceDir,
-      scannedAt: new Date(),
-      totalFiles: 0,
-      files: [],
-      suggestions: {
-        volumeMappings: [],
-        unmappableFiles: [],
-      },
-    };
-  }
-
-  /**
-   * Recognize entity type from filename and content.
-   * Looks for patterns like "project-brief", "world-foundation", "volume-X", "chapter-X".
-   */
-  recognizeEntity(_filePath: string, filename: string): EntityRecognitionResult {
-    const lowerName = filename.toLowerCase();
-    return this.recognizeByPattern(lowerName);
-  }
-
-  private recognizeByPattern(lowerName: string): EntityRecognitionResult {
-    // Try each pattern recognizer in order
-    const recognizers: Array<() => EntityRecognitionResult | undefined> = [
-      () => this.tryProjectBrief(lowerName),
-      () => this.tryWorldFoundation(lowerName),
-      () => this.tryStoryBlueprint(lowerName),
-      () => this.tryVolumePattern(lowerName),
-      () => this.tryChapterPattern(lowerName),
-    ];
-
-    for (const recognizer of recognizers) {
-      const result = recognizer();
-      if (result) {
-        return result;
-      }
-    }
-
-    // Default to reference
-    return {
-      type: 'reference',
-      confidence: 0.3,
-      reason: 'No clear entity type recognized',
-    };
-  }
-
-  private tryProjectBrief(lowerName: string): EntityRecognitionResult | undefined {
-    if (this.isProjectBrief(lowerName)) {
-      return {
-        type: 'project-brief',
-        confidence: 0.9,
-        reason: 'Filename matches project-brief pattern',
-      };
-    }
-    return undefined;
-  }
-
-  private tryWorldFoundation(lowerName: string): EntityRecognitionResult | undefined {
-    if (this.isWorldFoundation(lowerName)) {
-      return {
-        type: 'world-foundation',
-        confidence: 0.85,
-        reason: 'Filename matches world-foundation pattern',
-      };
-    }
-    return undefined;
-  }
-
-  private tryStoryBlueprint(lowerName: string): EntityRecognitionResult | undefined {
-    if (this.isStoryBlueprint(lowerName)) {
-      return {
-        type: 'story-blueprint',
-        confidence: 0.75,
-        reason: 'Filename suggests story structure document',
-      };
-    }
-    return undefined;
-  }
-
-  private tryVolumePattern(lowerName: string): EntityRecognitionResult | undefined {
-    return this.detectVolumePattern(lowerName);
-  }
-
-  private tryChapterPattern(lowerName: string): EntityRecognitionResult | undefined {
-    return this.detectChapterPattern(lowerName);
-  }
-
-  private isProjectBrief(lowerName: string): boolean {
-    return (
-      lowerName.includes('project-brief') ||
-      lowerName.includes('project brief') ||
-      lowerName.includes('brief')
-    );
-  }
-
-  private isWorldFoundation(lowerName: string): boolean {
-    return (
-      lowerName.includes('world-foundation') ||
-      lowerName.includes('world foundation') ||
-      lowerName.includes('world-building')
-    );
-  }
-
-  private isStoryBlueprint(lowerName: string): boolean {
-    return (
-      lowerName.includes('story-blueprint') ||
-      lowerName.includes('story blueprint') ||
-      lowerName.includes('outline') ||
-      lowerName.includes('structure')
-    );
-  }
-
-  private detectVolumePattern(lowerName: string): EntityRecognitionResult | undefined {
-    const volumeMatch = lowerName.match(/(?:volume|vol|book|v)\.?\s*-?\s*(\d+)/);
-    if (volumeMatch && volumeMatch[1]) {
-      return {
-        type: 'volume',
-        confidence: 0.8,
-        suggestedMapping: `volume-${volumeMatch[1]}`,
-        reason: 'Filename contains volume number',
-      };
-    }
-    return undefined;
-  }
-
-  private detectChapterPattern(lowerName: string): EntityRecognitionResult | undefined {
-    const chapterMatch = lowerName.match(/(?:chapter|ch|chap)\.?\s*-?\s*(\d+)/);
-    if (chapterMatch && chapterMatch[1]) {
-      return {
-        type: 'chapter',
-        confidence: 0.8,
-        suggestedMapping: `chapter-${chapterMatch[1]}`,
-        reason: 'Filename contains chapter number',
-      };
-    }
-    return undefined;
-  }
-
-  /**
-   * Analyze content for additional diagnostics.
-   * Checks for frontmatter, structure, and common issues.
-   */
-  analyzeMdContent(content: string): readonly string[] {
-    const diagnostics: string[] = [];
-
-    // Check for frontmatter
-    if (!content.trim().startsWith('---')) {
-      diagnostics.push('Missing YAML frontmatter');
-    }
-
-    // Check for headings
-    if (!content.includes('#')) {
-      diagnostics.push('No heading structure found');
-    }
-
-    // Check for empty content
-    if (content.trim().length < 50) {
-      diagnostics.push('Content is too short');
-    }
-
-    return diagnostics;
-  }
-
-  /**
-   * Build mapping suggestions from recognized entities.
-   */
-  buildMappingSuggestions(results: readonly FileScanResult[]): {
-    projectBriefMapping?: string;
-    worldFoundationMapping?: string;
-    storyBlueprintMapping?: string;
-    volumeMappings: readonly { volumeNumber: number; filePath: string }[];
-    unmappableFiles: readonly string[];
-  } {
-    const projectBriefs = results.filter((r) => r.recognition.type === 'project-brief');
-    const worldFoundations = results.filter((r) => r.recognition.type === 'world-foundation');
-    const storyBlueprints = results.filter((r) => r.recognition.type === 'story-blueprint');
-    const volumes = results.filter((r) => r.recognition.type === 'volume');
-    const unknowns = results.filter((r) => r.recognition.type === 'unknown');
-
-    const volumeMappings = volumes.map((v) => {
-      const suggestedMapping = v.recognition.suggestedMapping || '';
-      const match = suggestedMapping.match(/volume-(\d+)/);
-      return {
-        volumeNumber: parseInt(match?.[1] || '0'),
-        filePath: v.path,
-      };
-    });
-
-    const suggestions: {
-      projectBriefMapping?: string;
-      worldFoundationMapping?: string;
-      storyBlueprintMapping?: string;
-      volumeMappings: readonly { volumeNumber: number; filePath: string }[];
-      unmappableFiles: readonly string[];
-    } = {
-      volumeMappings: volumeMappings.sort((a, b) => a.volumeNumber - b.volumeNumber),
-      unmappableFiles: unknowns.map((u) => u.path),
-    };
-
-    if (projectBriefs[0]) {
-      suggestions.projectBriefMapping = projectBriefs[0].path;
-    }
-    if (worldFoundations[0]) {
-      suggestions.worldFoundationMapping = worldFoundations[0].path;
-    }
-    if (storyBlueprints[0]) {
-      suggestions.storyBlueprintMapping = storyBlueprints[0].path;
-    }
-
-    return suggestions;
-  }
 }

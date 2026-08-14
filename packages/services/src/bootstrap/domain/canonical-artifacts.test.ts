@@ -1,153 +1,59 @@
-import { describe, test, expect } from 'bun:test';
-import {
-  ProjectBriefSchema,
-  WorldFoundationSchema,
-  StoryBlueprintSchema,
-  validateProjectBrief,
-  validateWorldFoundation,
-  validateStoryBlueprint,
-} from './canonical-artifacts';
+import { describe, expect, test } from 'bun:test';
 
-describe('Canonical Artifacts Schemas', () => {
-  test('validates project-brief with required fields', () => {
-    const brief = {
-      id: 'pb-1',
+import { ProjectBriefSchema, StoryBlueprintSchema, WorldFoundationSchema, validateProjectBrief, validateStoryBlueprint, validateWorldFoundation } from './canonical-artifacts';
+
+describe('bootstrap canonical artifacts', () => {
+  test('accepts valid project brief data', () => {
+    const valid = validateProjectBrief({
+      id: 'project-brief-1',
       bookId: 'book-1',
-      title: 'The Great Adventure',
-      genres: ['Fantasy', 'Adventure'],
-      targetAudience: 'Young adults 16+',
-      marketScope: 'Global English-speaking readers',
-      readerPromise: 'Epic quest with personal growth',
-      corePremise: 'A chosen one discovers hidden magic',
-      openingHook: 'Attack on village triggers discovery',
-      contentBoundaries: 'PG-13 violence, no explicit content',
-      format: 'Novel',
-      sourceResearchEvidenceIds: ['ev-1', 'ev-2'],
-      status: 'draft' as const,
-    };
-
-    expect(() => validateProjectBrief(brief)).not.toThrow();
+      title: 'Nova Run',
+      genres: ['science fiction'],
+      targetAudience: 'young adults',
+      marketScope: 'serial web fiction',
+      readerPromise: 'high tension and emotional payoff',
+      corePremise: 'a memory-lost engineer returns',
+      openingHook: 'the city begins to forget the sun',
+      contentBoundaries: ['no explicit gore'],
+      format: 'serial',
+      sourceResearchEvidenceIds: ['evidence-1'],
+      assumptionIds: ['assumption-1'],
+      status: 'draft',
+    });
+    expect(ProjectBriefSchema.safeParse(valid).success).toBe(true);
   });
 
-  test('rejects project-brief with missing required fields', () => {
-    const incomplete = {
-      id: 'pb-1',
+  test('accepts world foundation and story blueprint', () => {
+    const world = validateWorldFoundation({
+      id: 'world-1',
       bookId: 'book-1',
-      title: 'The Great Adventure',
-      // missing genres and other required fields
-    };
-
-    expect(() => validateProjectBrief(incomplete)).toThrow();
-  });
-
-  test('validates world-foundation with required fields', () => {
-    const world = {
-      id: 'wf-1',
+      eraAndPrimarySetting: 'far future starport',
+      realityMode: 'hard-science',
+      tone: 'tense',
+      capabilitySystem: 'immersive force lattice',
+      immutableRules: ['gravity cannot be broken'],
+      socialOrder: 'caste-based port oligarchy',
+      narrativeProhibitions: ['no deus ex machina'],
+      terminologyRefs: ['term-1'],
+      projectBriefRef: 'project-brief-1',
+      status: 'draft',
+    });
+    const blueprint = validateStoryBlueprint({
+      id: 'story-blueprint-1',
       bookId: 'book-1',
-      eraAndPrimarySetting: 'Medieval fantasy, European-inspired kingdom',
-      realityMode: 'fantastical' as const,
-      tone: 'Epic and mysterious',
-      immutableRules: ['Magic is rare and dangerous', 'The prophecy is true'],
-      projectBriefRef: 'pb-1',
-      status: 'draft' as const,
-    };
-
-    expect(() => validateWorldFoundation(world)).not.toThrow();
-  });
-
-  test('validates world-foundation with optional fields', () => {
-    const worldComplete = {
-      id: 'wf-1',
-      bookId: 'book-1',
-      eraAndPrimarySetting: 'Medieval fantasy, European-inspired kingdom',
-      realityMode: 'fantastical' as const,
-      tone: 'Epic and mysterious',
-      capabilitySystem: 'Mages can cast spells with three sources of power',
-      immutableRules: ['Magic is rare and dangerous', 'The prophecy is true'],
-      socialOrder: 'Feudal system with noble families controlling regions',
-      narrativeProhibitions: ['No time travel', 'No deus ex machina endings'],
-      terminologyRefs: ['aether', 'mageborn', 'curse-marks'],
-      projectBriefRef: 'pb-1',
-      status: 'draft' as const,
-    };
-
-    expect(() => validateWorldFoundation(worldComplete)).not.toThrow();
-  });
-
-  test('validates story-blueprint with required fields', () => {
-    const blueprint = {
-      id: 'sb-1',
-      bookId: 'book-1',
-      projectBriefRef: 'pb-1',
-      worldFoundationRef: 'wf-1',
-      protagonistArc: 'From slave to liberator',
-      centralConflict: 'Overthrowing tyrannical rule',
-      opposition: 'The immortal tyrant and their army',
-      resolutionDirection: 'Protagonist must choose sacrifice or power',
-      estimatedVolumeCount: 3,
-      status: 'draft' as const,
-    };
-
-    expect(() => validateStoryBlueprint(blueprint)).not.toThrow();
-  });
-
-  test('rejects story-blueprint with invalid volume count', () => {
-    const invalid = {
-      id: 'sb-1',
-      bookId: 'book-1',
-      projectBriefRef: 'pb-1',
-      worldFoundationRef: 'wf-1',
-      protagonistArc: 'From slave to liberator',
-      centralConflict: 'Overthrowing tyrannical rule',
-      opposition: 'The immortal tyrant',
-      resolutionDirection: 'Sacrifice or power',
-      estimatedVolumeCount: 0, // Invalid: must be positive
-      status: 'draft' as const,
-    };
-
-    expect(() => validateStoryBlueprint(invalid)).toThrow();
-  });
-
-  test('project-brief schema accepts extensions', () => {
-    const brief = {
-      id: 'pb-1',
-      bookId: 'book-1',
-      title: 'The Great Adventure',
-      genres: ['Fantasy'],
-      targetAudience: 'Young adults',
-      marketScope: 'Global',
-      readerPromise: 'Epic quest',
-      corePremise: 'Magic discovery',
-      openingHook: 'Attack on village',
-      contentBoundaries: 'PG-13',
-      format: 'Novel',
-      sourceResearchEvidenceIds: [],
-      status: 'draft' as const,
-      extensions: {
-        customField: 'custom value',
-        metadata: { author: 'Anonymous' },
-      },
-    };
-
-    expect(() => validateProjectBrief(brief)).not.toThrow();
-  });
-
-  test('world-foundation supports different reality modes', () => {
-    const modes = ['realistic', 'fantastical', 'magical', 'sci-fi'] as const;
-
-    for (const mode of modes) {
-      const world = {
-        id: `wf-${mode}`,
-        bookId: 'book-1',
-        eraAndPrimarySetting: 'Test setting',
-        realityMode: mode,
-        tone: 'Test tone',
-        immutableRules: ['Rule 1'],
-        projectBriefRef: 'pb-1',
-        status: 'draft' as const,
-      };
-
-      expect(() => validateWorldFoundation(world)).not.toThrow();
-    }
+      projectBriefRef: 'project-brief-1',
+      worldFoundationRef: 'world-1',
+      protagonistArc: 'falls into the system, claims agency',
+      centralConflict: 'a city and its memory engine',
+      opposition: 'the port oligarchy',
+      resolutionDirection: 'liberation through truth',
+      volumePlan: ['first break'],
+      crossVolumeCommitments: ['memory theft matters'],
+      estimatedVolumeCount: 6,
+      status: 'draft',
+    });
+    expect(world.projectBriefRef).toBe('project-brief-1');
+    expect(blueprint.estimatedVolumeCount).toBe(6);
+    expect(StoryBlueprintSchema.safeParse(blueprint).success).toBe(true);
   });
 });

@@ -83,6 +83,62 @@ export const BookSchema = z
   })
   .readonly();
 
+export const ProjectBriefSchema = z
+  .object({
+    id: StableIdSchema,
+    bookId: StableIdSchema,
+    title: NonEmptyStringSchema,
+    genres: z.array(NonEmptyStringSchema).min(1).readonly(),
+    targetAudience: NonEmptyStringSchema,
+    marketScope: NonEmptyStringSchema,
+    readerPromise: NonEmptyStringSchema,
+    corePremise: NonEmptyStringSchema,
+    openingHook: NonEmptyStringSchema,
+    contentBoundaries: z.array(NonEmptyStringSchema).readonly(),
+    format: NonEmptyStringSchema,
+    sourceResearchEvidenceIds: z.array(StableIdSchema).readonly(),
+    assumptionIds: z.array(StableIdSchema).readonly(),
+    status: z.enum(CANONICAL_ARTIFACT_STATUS_VALUES),
+    extensions: z.record(z.unknown()).optional(),
+  })
+  .readonly();
+
+export const WorldFoundationSchema = z
+  .object({
+    id: StableIdSchema,
+    bookId: StableIdSchema,
+    eraAndPrimarySetting: NonEmptyStringSchema,
+    realityMode: NonEmptyStringSchema,
+    tone: NonEmptyStringSchema,
+    capabilitySystem: NonEmptyStringSchema,
+    immutableRules: z.array(NonEmptyStringSchema).readonly(),
+    socialOrder: NonEmptyStringSchema,
+    narrativeProhibitions: z.array(NonEmptyStringSchema).readonly(),
+    terminologyRefs: z.array(StableIdSchema).readonly(),
+    projectBriefRef: StableIdSchema,
+    status: z.enum(CANONICAL_ARTIFACT_STATUS_VALUES),
+    extensions: z.record(z.unknown()).optional(),
+  })
+  .readonly();
+
+export const StoryBlueprintSchema = z
+  .object({
+    id: StableIdSchema,
+    bookId: StableIdSchema,
+    projectBriefRef: StableIdSchema,
+    worldFoundationRef: StableIdSchema,
+    protagonistArc: NonEmptyStringSchema,
+    centralConflict: NonEmptyStringSchema,
+    opposition: NonEmptyStringSchema,
+    resolutionDirection: NonEmptyStringSchema,
+    volumePlan: z.array(NonEmptyStringSchema).readonly(),
+    crossVolumeCommitments: z.array(NonEmptyStringSchema).readonly(),
+    estimatedVolumeCount: PositiveIntegerSchema,
+    status: z.enum(CANONICAL_ARTIFACT_STATUS_VALUES),
+    extensions: z.record(z.unknown()).optional(),
+  })
+  .readonly();
+
 export const VolumeSchema = z
   .object({
     id: StableIdSchema,
@@ -413,6 +469,9 @@ export type DefaultChapterTypePolicy = z.infer<typeof DefaultChapterTypePolicySc
 export type Fact = z.infer<typeof FactSchema>;
 export type BeliefRecord = z.infer<typeof BeliefRecordSchema>;
 export type Book = z.infer<typeof BookSchema>;
+export type ProjectBrief = z.infer<typeof ProjectBriefSchema>;
+export type WorldFoundation = z.infer<typeof WorldFoundationSchema>;
+export type StoryBlueprint = z.infer<typeof StoryBlueprintSchema>;
 export type Volume = z.infer<typeof VolumeSchema>;
 export type Character = z.infer<typeof CharacterSchema>;
 export type PlanningAnchor = z.infer<typeof PlanningAnchorSchema>;

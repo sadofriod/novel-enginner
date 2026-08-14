@@ -1,174 +1,97 @@
-import type { BootstrapEvidenceData } from '../types';
-
-export interface MarketResearchInput {
-  targetGenre: string;
-  targetAudience: string;
-  marketScope: string;
-}
-
-export interface TrendReport {
-  id: string;
-  collectedAt: Date;
-  trends: readonly Trend[];
-  summary: string;
-}
-
-export interface Trend {
-  topic: string;
-  evidence: readonly string[]; // Evidence IDs
-  readingPreference: string;
-  competitionLevel: string;
-}
-
 export interface DialogueRound {
-  roundNumber: 1 | 2 | 3 | 4 | 5;
-  prompt: string;
-  authorResponse?: string;
-  generatedInsights?: string;
+  readonly round: number;
+  readonly objective: string;
+  readonly prompt: string;
 }
 
-export interface InspirationDialogueData {
-  rounds: readonly DialogueRound[];
-  trendReport?: TrendReport;
-  keyDecisions: Record<string, string>;
+const REQUIRED_DECISIONS = [
+  'genre',
+  'targetAudience',
+  'readerPromise',
+  'corePremise',
+  'openingHook',
+  'contentBoundaries',
+  'format',
+] as const;
+
+export function initializeDialogueRounds(): readonly DialogueRound[] {
+  return [
+    { round: 1, objective: '题材、读者与阅读承诺', prompt: '明确作品题材、目标读者与给读者的承诺。' },
+    { round: 2, objective: '核心创意、主角与开篇钩子', prompt: '描述核心创意、主角与开篇钩子。' },
+    { round: 3, objective: '核心冲突、对立力量与情感体验', prompt: '定义核心冲突、对立力量与情感体验。' },
+    { round: 4, objective: '差异化、趋势取舍与内容边界', prompt: '说明差异化策略、趋势取舍与内容边界。' },
+    { round: 5, objective: '篇幅与终局偏好确认', prompt: '确认篇幅、连载形态、终局偏好与待验证假设。' },
+  ];
 }
 
-/**
- * Orchestrates market research and five rounds of inspiration dialogue.
- * Each round's completion creates an immutable bootstrap revision.
- */
-export class BootstrapResearchOrchestrator {
-  /**
-   * Generate initial trend report from market research input.
-   * Integrates with MarketResearchPort (server-side only, not Web).
-   */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async generateTrendReport(_input: MarketResearchInput): Promise<TrendReport> {
-    // Placeholder: actual implementation delegates to MarketResearchPort
-    // which performs browser-based research via Puppeteer/Playwright
-    // _input contains: targetGenre, targetAudience, marketScope
-    return {
-      id: `trend-${Date.now()}`,
-      collectedAt: new Date(),
-      trends: [],
-      summary: '',
-    };
-  }
-
-  /**
-   * Initialize dialogue rounds for new-book flow.
-   * Each round has fixed objectives but dynamic follow-up questions.
-   */
-  initializeDialogueRounds(): readonly DialogueRound[] {
-    return [
-      {
-        roundNumber: 1,
-        prompt: 'Describe your target genre, intended audience, and reading promise to them.',
-      },
-      {
-        roundNumber: 2,
-        prompt: 'What is your core creative premise? Describe your protagonist and the opening hook.',
-      },
-      {
-        roundNumber: 3,
-        prompt: 'What is the central conflict? Who or what opposes your protagonist? What emotional journey do you want readers to experience?',
-      },
-      {
-        roundNumber: 4,
-        prompt: 'How does your work differentiate in the market? Which trends will you embrace or reject? What content boundaries will you set?',
-      },
-      {
-        roundNumber: 5,
-        prompt: 'How long will your work be? What serialization format works best? What key assumptions need validation before launch?',
-      },
-    ];
-  }
-
-  /**
-   * Validate that all key decisions are made before moving to project-brief.
-   * These are required for proposal generation.
-   */
-  validateKeyDecisions(decisions: Record<string, string>): {
-    valid: boolean;
-    missingFields: readonly string[];
-  } {
-    const required = [
-      'genre',
-      'targetAudience',
-      'readerPromise',
-      'corePremise',
-      'protagonist',
-      'openingHook',
-      'centralConflict',
-      'opposition',
-      'emotionalJourney',
-      'differentiation',
-      'marketTrendTakeaway',
-      'contentBoundaries',
-      'format',
-      'serialization',
-      'keyAssumptions',
-    ];
-
-    const missing = required.filter((field) => !decisions[field] || decisions[field].trim().length === 0);
-
-    return {
-      valid: missing.length === 0,
-      missingFields: missing,
-    };
-  }
-
-  /**
-   * Extract cleaned summary from evidence for copyright safety.
-   * Removes directly copied content and keeps only abstract insights.
-   */
-  extractCleanedSummary(evidence: BootstrapEvidenceData): string | undefined {
-    // Placeholder: actual implementation sanitizes against copyrighted content
-    return evidence.cleanedSummary;
-  }
-
-  /**
-   * Generate project-brief proposal from dialogue rounds.
-   * Combines market research, dialogue responses, and key decisions.
-   */
-  async generateProjectBriefProposal(
-    dialogueData: InspirationDialogueData,
-    evidenceIds: readonly string[],
-  ): Promise<{
-    title: string;
-    genres: readonly string[];
-    targetAudience: string;
-    readerPromise: string;
-    corePremise: string;
-    openingHook: string;
-    contentBoundaries: string;
-    marketScope: string;
-    sourceResearchEvidenceIds: readonly string[];
-  }> {
-    const decisions = dialogueData.keyDecisions;
-
-    return {
-      title: this.extractDecision(decisions, 'title', 'Untitled Work'),
-      genres: this.extractGenres(decisions),
-      targetAudience: this.extractDecision(decisions, 'targetAudience', ''),
-      readerPromise: this.extractDecision(decisions, 'readerPromise', ''),
-      corePremise: this.extractDecision(decisions, 'corePremise', ''),
-      openingHook: this.extractDecision(decisions, 'openingHook', ''),
-      contentBoundaries: this.extractDecision(decisions, 'contentBoundaries', ''),
-      marketScope: this.extractDecision(decisions, 'marketScope', ''),
-      sourceResearchEvidenceIds: evidenceIds,
-    };
-  }
-
-  private extractDecision(decisions: Record<string, string>, key: string, defaultValue: string): string {
-    return decisions[key] || defaultValue;
-  }
-
-  private extractGenres(decisions: Record<string, string>): readonly string[] {
-    return (decisions['genre'] || '')
-      .split(',')
-      .map((g) => g.trim())
-      .filter((g) => g.length > 0);
-  }
+export function validateKeyDecisions(decisions: Record<string, string | undefined>): boolean {
+  return REQUIRED_DECISIONS.every((key) => {
+    const value = decisions[key];
+    return typeof value === 'string' && value.trim().length > 0;
+  });
 }
 
+export function extractCleanedSummary(rawText: string): string {
+  const normalized = rawText.replace(/\s+/g, ' ').trim();
+  return normalized.length > 180 ? `${normalized.slice(0, 177).trimEnd()}...` : normalized;
+}
+
+export function generateTrendReport(sources: ReadonlyArray<{ readonly title: string; readonly summary: string }>): string {
+  if (sources.length === 0) {
+    return '暂无市场研究结果。';
+  }
+
+  return sources
+    .map((source) => `- ${source.title}: ${extractCleanedSummary(source.summary)}`)
+    .join('\n');
+}
+
+function splitList(value: string | undefined, fallback: string): readonly string[] {
+  const raw = value ?? fallback;
+  return raw.split(/[，,;；]/).map((entry) => entry.trim()).filter(Boolean);
+}
+
+function defaultString(value: string | undefined, fallback: string): string {
+  return value ?? fallback;
+}
+
+function buildProjectBriefDefaults(decisions: Record<string, string | undefined>) {
+  return {
+    title: defaultString(decisions.title, '新作立项简报'),
+    genres: splitList(decisions.genre, '科幻'),
+    targetAudience: defaultString(decisions.targetAudience, '青年通勤阅读人群'),
+    readerPromise: defaultString(decisions.readerPromise, '提供持续的紧张感和情感共鸣'),
+    corePremise: defaultString(decisions.corePremise, '在压迫性的世界规则中追求自我选择'),
+    openingHook: defaultString(decisions.openingHook, '一场看似偶然的事件将主人公推向世界中心'),
+    contentBoundaries: splitList(decisions.contentBoundaries, '不写出全篇大结局，不使用盗版元素'),
+    format: defaultString(decisions.format, '连载长篇'),
+  };
+}
+
+export function generateProjectBriefProposal(decisions: Record<string, string | undefined>): {
+  readonly id: string;
+  readonly title: string;
+  readonly genres: readonly string[];
+  readonly targetAudience: string;
+  readonly readerPromise: string;
+  readonly corePremise: string;
+  readonly openingHook: string;
+  readonly contentBoundaries: readonly string[];
+  readonly format: string;
+  readonly status: 'draft';
+} {
+  const defaults = buildProjectBriefDefaults(decisions);
+
+  return {
+    id: `project-brief-${Date.now()}`,
+    title: defaults.title,
+    genres: defaults.genres,
+    targetAudience: defaults.targetAudience,
+    readerPromise: defaults.readerPromise,
+    corePremise: defaults.corePremise,
+    openingHook: defaults.openingHook,
+    contentBoundaries: defaults.contentBoundaries,
+    format: defaults.format,
+    status: 'draft',
+  };
+}

@@ -3,6 +3,7 @@ import type { StableId } from '../domain/schema';
 import { WorkspaceSyncSession } from '../workspace/session';
 import type { ArtifactDetailState } from './artifact-detail';
 import type { DerivedGraph } from '../graph/types';
+import type { BootstrapEvidence, BootstrapRevision, BootstrapSession } from '../bootstrap/types';
 
 export interface ArtifactSummary extends ArtifactDetailState {
   readonly artifactType: ProposalArtifactType;
@@ -60,6 +61,9 @@ export class RuntimeStore {
   >();
   private readonly syncSessionByWorkspaceId = new Map<string, WorkspaceSyncSession>();
   private readonly workspaceValidityById = new Map<string, import('../domain/values').WorkspaceValidity>();
+  private readonly bootstrapSessionsById = new Map<string, BootstrapSession>();
+  private readonly bootstrapRevisionsById = new Map<string, BootstrapRevision>();
+  private readonly bootstrapEvidenceById = new Map<string, BootstrapEvidence>();
 
   findCommandByIdempotencyKey(idempotencyKey: string): CommandRecord | undefined {
     const commandId = this.commandIdByIdempotencyKey.get(idempotencyKey);
@@ -108,6 +112,38 @@ export class RuntimeStore {
   /** Lists every known artifact summary, for the Web console's approval queue. */
   listArtifacts(): readonly ArtifactSummary[] {
     return Array.from(this.artifactsByKey.values());
+  }
+
+  upsertBootstrapSession(session: BootstrapSession): void {
+    this.bootstrapSessionsById.set(session.id, session);
+  }
+
+  getBootstrapSession(sessionId: string): BootstrapSession | undefined {
+    return this.bootstrapSessionsById.get(sessionId);
+  }
+
+  listBootstrapSessions(): readonly BootstrapSession[] {
+    return Array.from(this.bootstrapSessionsById.values()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  upsertBootstrapRevision(revision: BootstrapRevision): void {
+    this.bootstrapRevisionsById.set(revision.id, revision);
+  }
+
+  listBootstrapRevisions(sessionId: string): readonly BootstrapRevision[] {
+    return Array.from(this.bootstrapRevisionsById.values())
+      .filter((revision) => revision.sessionId === sessionId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  upsertBootstrapEvidence(evidence: BootstrapEvidence): void {
+    this.bootstrapEvidenceById.set(evidence.id, evidence);
+  }
+
+  listBootstrapEvidence(sessionId: string): readonly BootstrapEvidence[] {
+    return Array.from(this.bootstrapEvidenceById.values())
+      .filter((evidence) => evidence.sessionId === sessionId)
+      .sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
   }
 
   /** Lists every known run record, newest first, for the Web console's run trace view. */

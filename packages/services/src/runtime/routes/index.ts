@@ -3,6 +3,10 @@ import { postAppCommandRoute } from './app/actions/command/post';
 import { getArtifactsRoute } from './artifacts/get';
 import { getArtifactRoute } from './artifacts/[artifactType]/[targetId]/get';
 import { getOverrideAuditRoute } from './audits/override/[overrideAuditId]/get';
+import { getBootstrapSessionEvidenceRoute } from './bootstrap-sessions/[sessionId]/evidence/get';
+import { getBootstrapSessionRevisionsRoute } from './bootstrap-sessions/[sessionId]/revisions/get';
+import { getBootstrapSessionRoute } from './bootstrap-sessions/[sessionId]/get';
+import { getBootstrapSessionsRoute } from './bootstrap-sessions/get';
 import { getCommandRoute } from './commands/[commandId]/get';
 import { postCommandsRoute } from './commands/post';
 import { getRootRoute } from './root/get';
@@ -25,6 +29,10 @@ const ROUTES: readonly RuntimeRouteDefinition[] = [
   getArtifactsRoute,
   getArtifactRoute,
   getOverrideAuditRoute,
+  getBootstrapSessionsRoute,
+  getBootstrapSessionRoute,
+  getBootstrapSessionRevisionsRoute,
+  getBootstrapSessionEvidenceRoute,
   postRebuildGraphRoute,
   postReSyncStateRoute,
 ];

@@ -8,6 +8,10 @@ export interface RouteApi {
   handleGetCommand(commandId: string): Response;
   handleListRuns(): Response;
   handleListArtifacts(): Response;
+  handleListBootstrapSessions(): Response;
+  handleGetBootstrapSession(sessionId: string): Response;
+  handleGetBootstrapSessionRevisions(sessionId: string): Response;
+  handleGetBootstrapSessionEvidence(sessionId: string): Response;
   handleGetRun(runId: string): Response;
   handleGetArtifact(artifactType: string, targetId: string): Response;
   handleGetOverrideAudit(overrideAuditId: string): Promise<Response>;

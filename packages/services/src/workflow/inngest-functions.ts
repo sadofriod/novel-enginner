@@ -38,7 +38,6 @@ import {
 } from '../persistence/operations';
 import { type Proposal, type ReviewerResult } from '../domain/schema';
 import {
-  createBootstrapArtifactDraft,
   createChapterManuscriptDraft,
   createChapterOutlineDraft,
   createVolumeOutlineDraft,
@@ -47,13 +46,15 @@ import { readCanonicalWorkspaceFiles } from '../workspace/file-watcher';
 import { resolveArtifactWorkflow } from './artifact-workflows';
 import { buildProposalRegistry } from './proposal-lifecycle';
 import { inngest } from './inngest-client';
+import { projectBriefFunction, storyBlueprintFunction, worldFoundationFunction } from './inngest-foundation-functions';
+import { rebuildGraphFunction, syntheticReviewFunction } from './inngest-review-functions';
 
 // ---------------------------------------------------------------------------
 // Helper: minimal in-memory ProposalRegistry for the step context.
 // In a real deployment, supply a Prisma-backed registry adapter here.
 // ---------------------------------------------------------------------------
 
-async function createPersistedProposal(input: {
+export async function createPersistedProposal(input: {
   readonly workspaceId: string;
   readonly bookId: string;
   readonly artifactType: Proposal['artifactType'];
@@ -97,7 +98,7 @@ async function createPersistedProposal(input: {
   return result;
 }
 
-async function synchronizeWorkflowWorkspace(input: {
+export async function synchronizeWorkflowWorkspace(input: {
   readonly workspaceId: string;
   readonly bookId: string;
   readonly requestedBy: string;
@@ -129,54 +130,6 @@ async function synchronizeWorkflowWorkspace(input: {
   }
   return body.canonicalVersion;
 }
-
-export const projectBriefFunction = inngest.createFunction(
-  { id: 'project-brief-workflow', name: 'Project Brief Workflow', concurrency: { limit: 1, key: 'event.data.bookId' }, retries: 2 },
-  { event: 'novel/project-brief.requested' },
-  async ({ event, step }) => {
-    const { workspaceId, bookId, targetId, intent, runId } = event.data;
-    const canonicalVersion = await step.run('re-sync-state', async () =>
-      synchronizeWorkflowWorkspace({ workspaceId, bookId, requestedBy: event.data.requestedBy, runId }));
-    const generated = await step.run('generate-project-brief', async () => generateWorldState({
-      artifactType: 'project-brief', targetId, canonicalContext: `workspace=${workspaceId}; book=${bookId}`,
-      instructions: 'Return only complete canonical Markdown for state/book/project-brief.md with every required ProjectBrief frontmatter field.',
-    }, createDefaultModelProvider()));
-    const proposalResult = await step.run('create-proposal', async () => createPersistedProposal({
-      workspaceId, bookId, artifactType: 'project-brief', targetId, intent, parentRunId: runId, canonicalVersion,
-    }));
-    await step.run('persist-canonical-draft', async () => persistCanonicalDraft({
-      draft: createBootstrapArtifactDraft({ proposalId: proposalResult.created.proposalId, artifactType: 'project-brief', content: generated.text }),
-      proposal: proposalResult.created,
-    }));
-    return { proposalId: proposalResult.created.proposalId, status: proposalResult.created.status, workspaceId, bookId, targetId };
-  },
-);
-
-export const worldFoundationFunction = inngest.createFunction(
-  { id: 'world-foundation-workflow', name: 'World Foundation Workflow', concurrency: { limit: 1, key: 'event.data.bookId' }, retries: 2 },
-  { event: 'novel/world-foundation.requested' },
-  async ({ event, step }) => {
-    const { workspaceId, bookId, targetId, intent, runId } = event.data;
-    const canonicalVersion = await step.run('re-sync-state', async () => synchronizeWorkflowWorkspace({ workspaceId, bookId, requestedBy: event.data.requestedBy, runId }));
-    const generated = await step.run('generate-world-foundation', async () => generateWorldState({ artifactType: 'world-foundation', targetId, canonicalContext: `workspace=${workspaceId}; book=${bookId}`, instructions: 'Return only complete canonical Markdown for state/world/world-foundation.md with every required WorldFoundation frontmatter field.' }, createDefaultModelProvider()));
-    const proposalResult = await step.run('create-proposal', async () => createPersistedProposal({ workspaceId, bookId, artifactType: 'world-foundation', targetId, intent, parentRunId: runId, canonicalVersion }));
-    await step.run('persist-canonical-draft', async () => persistCanonicalDraft({ draft: createBootstrapArtifactDraft({ proposalId: proposalResult.created.proposalId, artifactType: 'world-foundation', content: generated.text }), proposal: proposalResult.created }));
-    return { proposalId: proposalResult.created.proposalId, status: proposalResult.created.status, workspaceId, bookId, targetId };
-  },
-);
-
-export const storyBlueprintFunction = inngest.createFunction(
-  { id: 'story-blueprint-workflow', name: 'Story Blueprint Workflow', concurrency: { limit: 1, key: 'event.data.bookId' }, retries: 2 },
-  { event: 'novel/story-blueprint.requested' },
-  async ({ event, step }) => {
-    const { workspaceId, bookId, targetId, intent, runId } = event.data;
-    const canonicalVersion = await step.run('re-sync-state', async () => synchronizeWorkflowWorkspace({ workspaceId, bookId, requestedBy: event.data.requestedBy, runId }));
-    const generated = await step.run('generate-story-blueprint', async () => generateWorldState({ artifactType: 'story-blueprint', targetId, canonicalContext: `workspace=${workspaceId}; book=${bookId}`, instructions: 'Return only complete canonical Markdown for state/book/story-blueprint.md with every required StoryBlueprint frontmatter field.' }, createDefaultModelProvider()));
-    const proposalResult = await step.run('create-proposal', async () => createPersistedProposal({ workspaceId, bookId, artifactType: 'story-blueprint', targetId, intent, parentRunId: runId, canonicalVersion }));
-    await step.run('persist-canonical-draft', async () => persistCanonicalDraft({ draft: createBootstrapArtifactDraft({ proposalId: proposalResult.created.proposalId, artifactType: 'story-blueprint', content: generated.text }), proposal: proposalResult.created }));
-    return { proposalId: proposalResult.created.proposalId, status: proposalResult.created.status, workspaceId, bookId, targetId };
-  },
-);
 
 // ---------------------------------------------------------------------------
 // chapter-outline workflow
@@ -533,90 +486,4 @@ export const worldChangeFunction = inngest.createFunction(
   },
 );
 
-// ---------------------------------------------------------------------------
-// Synthetic review function
-// Triggered when a canonical file is hand-edited after approval (§5.8).
-// ---------------------------------------------------------------------------
-
-export const syntheticReviewFunction = inngest.createFunction(
-  {
-    id: 'synthetic-review',
-    name: 'Synthetic Review After Hand Edit',
-    retries: 1,
-  },
-  { event: 'novel/review.synthetic-requested' },
-  async ({ event, step }) => {
-    const { workspaceId, bookId, artifactType, targetId, editedFilePath, editedText, proposalId } = event.data;
-
-    const reviewResult = await step.run('run-synthetic-review', async () => {
-      if (editedText === undefined) {
-        throw new NonRetriableError(
-          `Synthetic review for ${artifactType}/${targetId} requires editedText (${editedFilePath}).`,
-        );
-      }
-
-      const result = assembleReviewerResult(
-        editedText,
-        await requestReviewerModelEvidence(createDefaultModelProvider(), artifactType, editedText),
-        await loadReviewerRules(process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd()),
-      );
-
-      if (proposalId !== undefined) {
-        await persistReviewerResultAndLinkProposal(
-          `synthetic-review-${targetId}-${Date.now().toString(36)}`,
-          proposalId,
-          result,
-        );
-      }
-
-      return {
-        artifactType,
-        targetId,
-        editedFilePath,
-        status: result.approved ? 'passed' : 'blocked',
-        reviewerResult: result,
-      };
-    });
-
-    return { workspaceId, bookId, ...reviewResult };
-  },
-);
-
-// ---------------------------------------------------------------------------
-// Graph rebuild + reindex functions
-// ---------------------------------------------------------------------------
-
-export const rebuildGraphFunction = inngest.createFunction(
-  { id: 'rebuild-graph', name: 'Rebuild Derived Graph' },
-  { event: 'novel/sync.rebuild-graph' },
-  async ({ event, step }) => {
-    const { workspaceId, bookId } = event.data;
-    await step.run('rebuild', async () => {
-      const response = await fetch(
-        `${process.env['NOVEL_API_BASE_URL'] ?? 'http://localhost:3000'}/sync/rebuild-graph`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ workspaceId, bookId }),
-        },
-      );
-      if (!response.ok) {
-        throw new NonRetriableError(`rebuild-graph failed: ${response.status}`);
-      }
-    });
-    return { workspaceId, bookId, status: 'graph-rebuilt' };
-  },
-);
-
-/** All Inngest functions registered for this workspace service. */
-export const inngestFunctions = [
-  projectBriefFunction,
-  worldFoundationFunction,
-  storyBlueprintFunction,
-  chapterOutlineFunction,
-  chapterManuscriptFunction,
-  volumeOutlineFunction,
-  worldChangeFunction,
-  syntheticReviewFunction,
-  rebuildGraphFunction,
-] as const;
+export const inngestFunctions = [projectBriefFunction, worldFoundationFunction, storyBlueprintFunction, chapterOutlineFunction, chapterManuscriptFunction, volumeOutlineFunction, worldChangeFunction, syntheticReviewFunction, rebuildGraphFunction] as const;

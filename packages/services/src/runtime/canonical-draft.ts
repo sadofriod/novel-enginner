@@ -1,5 +1,6 @@
 import type { Proposal } from '../domain';
 import type { CanonicalEntityKind } from '../workspace/layout';
+import { parseCanonicalMarkdown, serializeCanonicalMarkdown } from '../workspace/markdown';
 import { validateCanonicalFile } from '../workspace/sync-engine';
 import type { CanonicalDraft } from './store';
 
@@ -68,6 +69,62 @@ export function createChapterOutlineDraft(input: {
   });
 }
 
+export function createVolumeOutlineDraft(input: {
+  readonly proposalId: string;
+  readonly targetId: string;
+  readonly content: string;
+}): CanonicalDraft {
+  const draft: CanonicalDraft = {
+    proposalId: input.proposalId,
+    relativePath: `state/volumes/${input.targetId}.md`,
+    content: input.content,
+  };
+  return validateCanonicalDraftForProposal(draft, {
+    artifactType: 'volume-outline',
+    targetId: input.targetId,
+  });
+}
+
+export function createApprovedCanonicalDraft(
+  draft: CanonicalDraft,
+  proposal: Pick<Proposal, 'artifactType' | 'targetId'>,
+): CanonicalDraft {
+  if (proposal.artifactType !== 'chapter-outline' && proposal.artifactType !== 'chapter-manuscript') {
+    return validateCanonicalDraftForProposal(draft, proposal);
+  }
+
+  const parsed = parseCanonicalMarkdown(draft.content);
+  const frontmatter = readFrontmatter(parsed.frontmatter);
+  const approvedDraft = {
+    ...draft,
+    content: serializeCanonicalMarkdown({
+      frontmatter: { ...frontmatter, status: 'approved' },
+      sections: parsed.sections,
+      scenes: parsed.scenes,
+    }),
+  };
+  return validateCanonicalDraftForProposal(approvedDraft, proposal);
+}
+
+export function createChapterManuscriptDraft(input: {
+  readonly proposalId: string;
+  readonly targetId: string;
+  readonly content: string;
+}): CanonicalDraft {
+  const parsed = parseCanonicalMarkdown(input.content);
+  const volumeId = readVolumeId(parsed.frontmatter);
+  const chapterId = input.targetId.replace(/-manuscript$/, '');
+  const draft: CanonicalDraft = {
+    proposalId: input.proposalId,
+    relativePath: `manuscript/${volumeId}/${chapterId}.md`,
+    content: input.content,
+  };
+  return validateCanonicalDraftForProposal(draft, {
+    artifactType: 'chapter-manuscript',
+    targetId: input.targetId,
+  });
+}
+
 function validateProposalTarget(
   draft: CanonicalDraft,
   entityKind: string,
@@ -75,7 +132,10 @@ function validateProposalTarget(
   expectedKind: CanonicalEntityKind,
   proposal: Pick<Proposal, 'artifactType' | 'targetId'>,
 ): void {
-  if (entityKind === expectedKind && entityId === proposal.targetId) {
+  const expectedEntityId = proposal.artifactType === 'chapter-manuscript'
+    ? proposal.targetId.replace(/-manuscript$/, '')
+    : proposal.targetId;
+  if (entityKind === expectedKind && entityId === expectedEntityId) {
     return;
   }
   throw new CanonicalDraftValidationError(
@@ -115,4 +175,19 @@ function readEntityId(data: unknown): string | undefined {
     return undefined;
   }
   return typeof data.id === 'string' ? data.id : undefined;
+}
+
+function readFrontmatter(frontmatter: unknown): Record<string, unknown> {
+  if (frontmatter !== null && typeof frontmatter === 'object' && !Array.isArray(frontmatter)) {
+    return frontmatter as Record<string, unknown>;
+  }
+  throw new CanonicalDraftValidationError('Canonical Markdown frontmatter must be an object.');
+}
+
+function readVolumeId(frontmatter: unknown): string {
+  const value = readFrontmatter(frontmatter)['volumeId'];
+  if (typeof value !== 'string') {
+    throw new CanonicalDraftValidationError('Chapter manuscript frontmatter requires volumeId.');
+  }
+  return value;
 }

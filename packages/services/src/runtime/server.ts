@@ -47,6 +47,9 @@ const workspaceWatcher = startWorkspaceFileWatcher({
       const artifact = apiServer.store.getArtifact(artifactType, targetId);
       const wasApprovedBeforeEdit = artifact?.proposalStatus === 'approved' || artifact?.proposalStatus === 'override-approved';
       const editedText = contentByPath.get(path);
+      if (editedText !== undefined && apiServer.store.consumeInternalCanonicalCommit(path, editedText)) {
+        return;
+      }
       const freshness = await handleHandEditedArtifact({
         workspaceId,
         bookId: process.env['NOVEL_BOOK_ID'] ?? 'book-local',

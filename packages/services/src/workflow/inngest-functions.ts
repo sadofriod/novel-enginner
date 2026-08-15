@@ -29,12 +29,18 @@ import { generateWorldState } from '../agent/world-builder';
 import { assembleReviewerResult, DEFAULT_REVIEWER_RULE_THRESHOLDS } from '../agent/reviewer';
 import {
   listActiveProposalsForBook,
+  findProposal,
   persistCanonicalDraft,
   persistProposal,
   persistReviewerResult,
 } from '../persistence/operations';
 import { type Proposal } from '../domain/schema';
-import { createChapterOutlineDraft } from '../runtime/canonical-draft';
+import {
+  createChapterManuscriptDraft,
+  createChapterOutlineDraft,
+  createVolumeOutlineDraft,
+} from '../runtime/canonical-draft';
+import { readCanonicalWorkspaceFiles } from '../workspace/file-watcher';
 import { resolveArtifactWorkflow } from './artifact-workflows';
 import { buildProposalRegistry } from './proposal-lifecycle';
 import { inngest } from './inngest-client';
@@ -59,6 +65,12 @@ async function createPersistedProposal(input: {
     );
   }
 
+  const proposalId = `proposal-${input.parentRunId}`;
+  const existingProposal = await findProposal(proposalId);
+  if (existingProposal !== undefined) {
+    return { created: existingProposal };
+  }
+
   const activeProposals = await listActiveProposalsForBook(input.workspaceId, input.bookId);
   const workflow = resolveArtifactWorkflow(input.artifactType);
   if (workflow === undefined) {
@@ -66,7 +78,7 @@ async function createPersistedProposal(input: {
   }
 
   const proposal: Proposal = {
-    proposalId: `proposal-${input.parentRunId}`,
+    proposalId,
     artifactType: input.artifactType,
     targetId: input.targetId,
     status: 'pending-review',
@@ -80,6 +92,39 @@ async function createPersistedProposal(input: {
     await persistProposal(input.workspaceId, input.bookId, result.superseded);
   }
   return result;
+}
+
+async function synchronizeWorkflowWorkspace(input: {
+  readonly workspaceId: string;
+  readonly bookId: string;
+  readonly requestedBy: string;
+  readonly runId: string;
+}): Promise<string> {
+  const workspaceRoot = process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd();
+  const files = await readCanonicalWorkspaceFiles(workspaceRoot);
+  const response = await fetch(
+    `${process.env['NOVEL_API_BASE_URL'] ?? 'http://localhost:3000'}/sync/re-sync-state`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        workspaceId: input.workspaceId,
+        bookId: input.bookId,
+        files,
+        requestedBy: input.requestedBy,
+        approvalMode: 'manual',
+        idempotencyKey: `workflow-sync-${input.runId}`,
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new NonRetriableError(`re-sync-state failed: ${response.status}`);
+  }
+  const body = await response.json() as { canonicalVersion?: unknown };
+  if (typeof body.canonicalVersion !== 'string') {
+    throw new NonRetriableError('re-sync-state did not return a canonical version.');
+  }
+  return body.canonicalVersion;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,32 +144,10 @@ export const chapterOutlineFunction = inngest.createFunction(
     const { workspaceId, bookId, targetId, intent, runId } = event.data;
 
     // Step 1: re-sync canonical state before any workflow work.
-    await step.run('re-sync-state', async () => {
-      const response = await fetch(
-        `${process.env['NOVEL_API_BASE_URL'] ?? 'http://localhost:3000'}/sync/re-sync-state`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ workspaceId, bookId }),
-        },
-      );
-      if (!response.ok) {
-        throw new NonRetriableError(`re-sync-state failed: ${response.status}`);
-      }
-    });
-
-    // Step 2: Create or supersede the chapter-outline proposal.
-    const proposalResult = await step.run('create-proposal', async () => {
-      return createPersistedProposal({
-        workspaceId,
-        bookId,
-        artifactType: 'chapter-outline',
-        targetId,
-        intent,
-        parentRunId: runId,
-        ...(event.data.canonicalVersion !== undefined ? { canonicalVersion: event.data.canonicalVersion } : {}),
-      });
-    });
+    const canonicalVersion = await step.run(
+      're-sync-state',
+      async () => synchronizeWorkflowWorkspace({ workspaceId, bookId, requestedBy: event.data.requestedBy, runId }),
+    );
 
     // Step 3: WorldBuilder/PlotPlanner sub-steps (agent calls) — skeletons.
     const provider = createDefaultModelProvider();
@@ -146,12 +169,25 @@ export const chapterOutlineFunction = inngest.createFunction(
       }, provider);
     });
 
-    await step.run('persist-canonical-draft', async () => {
-      const draft = createChapterOutlineDraft({
-        proposalId: proposalResult.created.proposalId,
+    const draft = await step.run('validate-canonical-draft', async () => createChapterOutlineDraft({
+      proposalId: `proposal-${runId}`,
+      targetId,
+      content: chapterOutline.text,
+    }));
+
+    const proposalResult = await step.run('create-proposal', async () => {
+      return createPersistedProposal({
+        workspaceId,
+        bookId,
+        artifactType: 'chapter-outline',
         targetId,
-        content: chapterOutline.text,
+        intent,
+        parentRunId: runId,
+        canonicalVersion,
       });
+    });
+
+    await step.run('persist-canonical-draft', async () => {
       await persistCanonicalDraft({ draft, proposal: proposalResult.created });
     });
 
@@ -193,6 +229,10 @@ export const chapterManuscriptFunction = inngest.createFunction(
   { event: 'novel/chapter-manuscript.requested' },
   async ({ event, step }) => {
     const { workspaceId, bookId, targetId, intent, runId } = event.data;
+    const canonicalVersion = await step.run(
+      're-sync-state',
+      async () => synchronizeWorkflowWorkspace({ workspaceId, bookId, requestedBy: event.data.requestedBy, runId }),
+    );
 
     // Step 1: Verify the target outline is approved.
     const outlineCheck = await step.run('check-outline-approved', async () => {
@@ -223,7 +263,7 @@ export const chapterManuscriptFunction = inngest.createFunction(
         targetId,
         intent,
         parentRunId: runId,
-        ...(event.data.canonicalVersion !== undefined ? { canonicalVersion: event.data.canonicalVersion } : {}),
+        canonicalVersion,
       });
     });
 
@@ -233,7 +273,7 @@ export const chapterManuscriptFunction = inngest.createFunction(
         artifactType: 'chapter-manuscript',
         targetId,
         canonicalContext: `approved outline target: ${targetId}`,
-        instructions: 'Generate a manuscript draft anchored to the approved outline. Preserve scene anchors and do not invent canon.',
+        instructions: `Return only complete canonical Markdown for the manuscript target ${targetId}. Preserve scene anchors and do not invent canon.`,
       }, provider);
     });
 
@@ -277,6 +317,15 @@ export const chapterManuscriptFunction = inngest.createFunction(
       }
     }
 
+    await step.run('persist-canonical-draft', async () => {
+      const draftPayload = createChapterManuscriptDraft({
+        proposalId: proposalResult.created.proposalId,
+        targetId,
+        content: draft.text,
+      });
+      await persistCanonicalDraft({ draft: draftPayload, proposal: proposalResult.created });
+    });
+
     return {
       proposalId: proposalResult.created.proposalId,
       status: proposalResult.created.status,
@@ -304,19 +353,25 @@ export const volumeOutlineFunction = inngest.createFunction(
   async ({ event, step }) => {
     const { workspaceId, bookId, targetId, intent, runId } = event.data;
 
-    await step.run('re-sync-state', async () => {
-      const response = await fetch(
-        `${process.env['NOVEL_API_BASE_URL'] ?? 'http://localhost:3000'}/sync/re-sync-state`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ workspaceId, bookId }),
-        },
-      );
-      if (!response.ok) {
-        throw new NonRetriableError(`re-sync-state failed: ${response.status}`);
-      }
+    const canonicalVersion = await step.run(
+      're-sync-state',
+      async () => synchronizeWorkflowWorkspace({ workspaceId, bookId, requestedBy: event.data.requestedBy, runId }),
+    );
+
+    const volumeOutline = await step.run('plot-planner-volume', async () => {
+      return outlineChapter({
+        artifactType: 'volume-outline',
+        targetId,
+        canonicalContext: `workspace=${workspaceId}; book=${bookId}`,
+        instructions: `Return only complete canonical Markdown for state/volumes/${targetId}.md. Include every required Volume frontmatter field and use the target id exactly.`,
+      }, createDefaultModelProvider());
     });
+
+    const draft = await step.run('validate-canonical-draft', async () => createVolumeOutlineDraft({
+      proposalId: `proposal-${runId}`,
+      targetId,
+      content: volumeOutline.text,
+    }));
 
     const proposalResult = await step.run('create-proposal', async () => {
       return createPersistedProposal({
@@ -326,17 +381,12 @@ export const volumeOutlineFunction = inngest.createFunction(
         targetId,
         intent,
         parentRunId: runId,
-        ...(event.data.canonicalVersion !== undefined ? { canonicalVersion: event.data.canonicalVersion } : {}),
+        canonicalVersion,
       });
     });
 
-    const volumeOutline = await step.run('plot-planner-volume', async () => {
-      return outlineChapter({
-        artifactType: 'volume-outline',
-        targetId,
-        canonicalContext: `workspace=${workspaceId}; book=${bookId}`,
-        instructions: 'Generate a volume-level outline with milestones, chapter roster, and clue payoffs.',
-      }, createDefaultModelProvider());
+    await step.run('persist-canonical-draft', async () => {
+      await persistCanonicalDraft({ draft, proposal: proposalResult.created });
     });
 
     return {
@@ -365,6 +415,10 @@ export const worldChangeFunction = inngest.createFunction(
   { event: 'novel/world-change.requested' },
   async ({ event, step }) => {
     const { workspaceId, bookId, targetId, intent, runId } = event.data;
+    const canonicalVersion = await step.run(
+      're-sync-state',
+      async () => synchronizeWorkflowWorkspace({ workspaceId, bookId, requestedBy: event.data.requestedBy, runId }),
+    );
 
     const proposalResult = await step.run('create-proposal', async () => {
       return createPersistedProposal({
@@ -374,7 +428,7 @@ export const worldChangeFunction = inngest.createFunction(
         targetId,
         intent,
         parentRunId: runId,
-        ...(event.data.canonicalVersion !== undefined ? { canonicalVersion: event.data.canonicalVersion } : {}),
+        canonicalVersion,
       });
     });
 

@@ -74,6 +74,7 @@ describe('reSyncState', () => {
     const second = reSyncState(files, first.snapshot);
     expect(first.validity).toBe('dirty');
     expect(second.validity).toBe('clean');
+    expect(second.snapshot.snapshotId).toBe(first.snapshot.snapshotId);
   });
 
   test('marks workspace invalid and preserves last good snapshot on schema failure', () => {

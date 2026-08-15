@@ -51,6 +51,16 @@ describe('proposal creation and supersede', () => {
     expect(result.created.supersedesProposalId).toBe('proposal-chapter-0042-001');
   });
 
+  test('a retry with the same proposal id does not supersede itself', () => {
+    const proposal = makeProposal();
+    const result = createProposal({
+      proposal,
+      registry: buildProposalRegistry([proposal]),
+    });
+
+    expect(result).toEqual({ created: proposal });
+  });
+
   test('a terminal (already superseded) proposal is not treated as active', () => {
     const oldTerminal = makeProposal({ proposalId: 'proposal-old', status: 'superseded' });
     const registry = buildProposalRegistry([oldTerminal]);

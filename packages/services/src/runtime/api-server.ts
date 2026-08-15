@@ -10,9 +10,11 @@ import { handleCommand, validateCommandEnvelope, type CommandResult } from './co
 import {
   findPersistedCommandByIdempotencyKey,
   findPersistedCanonicalDraft,
+  listActiveProposalsForBook,
   findActiveProposalForTarget,
   findPersistedRun,
   persistCommand,
+  persistProposal,
   persistRun,
   persistDerivedRebuildJob,
   findOverrideAudit,
@@ -20,11 +22,12 @@ import {
 } from '../persistence/operations';
 import type { CanonicalDraft, CommandRecord, RunRecord } from './store';
 import { applyProposalCommand } from '../workflow/command-lifecycle';
+import { resolveArtifactWorkflow } from '../workflow/artifact-workflows';
 import { buildDerivedGraph } from '../graph/derive';
 import { handleHandEditedArtifact } from '../agent/synthetic-review';
 import { commitCanonicalFile } from '../workspace/canonical-commit';
 import { resolveLayoutRuleForPath } from '../workspace/layout';
-import { validateCanonicalDraftForProposal } from './canonical-draft';
+import { createApprovedCanonicalDraft } from './canonical-draft';
 import { RunEventBus } from './event-bus';
 import { listRegisteredRoutes } from './routes';
 import { matchRoute } from './routes/match-route';
@@ -255,6 +258,9 @@ async function finalizeAcceptedCommand(
   if (command !== undefined && run !== undefined && persistAcceptedCommand !== undefined) {
     await persistAcceptedCommand(validation.envelope, command, run);
   }
+  if (commandWasKnown) {
+    return;
+  }
   await persistControlledRunStatus(validation.envelope, store);
 
   syncArtifactSummary(store, eventBus, validation.envelope, result, getWorkspaceValidity);
@@ -391,8 +397,15 @@ async function handleReSyncState(
   }
 
   const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : 'default';
+  const payload = { ...body, intent: 're-sync-state', systemTaskType: 're-sync-state' };
+  const knownCommand = typeof body['idempotencyKey'] === 'string'
+    ? store.findCommandByIdempotencyKey(body['idempotencyKey'])
+    : undefined;
+  if (knownCommand !== undefined) {
+    const result = handleCommand(payload, { store, eventBus, getWorkspaceValidity });
+    return jsonResponse(result, result.status === 'accepted' ? 202 : 400);
+  }
   if (!Array.isArray(body['files'])) {
-    const payload = { ...body, intent: 're-sync-state', systemTaskType: 're-sync-state' };
     const result = handleCommand(payload, { store, eventBus, getWorkspaceValidity });
     return jsonResponse(result, result.status === 'accepted' ? 202 : 400);
   }
@@ -420,8 +433,10 @@ async function handleReSyncState(
       reSyncStateOptions.onSyntheticCommit?.(syntheticCommit);
     }
   }
+  if (sessionState.validity === 'clean') {
+    await requeueBlockedProposals(workspaceId, typeof body['bookId'] === 'string' ? body['bookId'] : 'book-unknown');
+  }
 
-  const payload = { ...body, intent: 're-sync-state', systemTaskType: 're-sync-state' };
   const result = handleCommand(payload, { store, eventBus, getWorkspaceValidity });
   if (result.status === 'accepted') {
     const wsEventType = sessionState.validity === 'invalid' ? 'workspace.invalid' : 'workspace.valid';
@@ -436,7 +451,27 @@ async function handleReSyncState(
       },
     });
   }
-  return jsonResponse(result, result.status === 'accepted' ? 202 : 400);
+  const response = result.status === 'accepted'
+    ? { ...result, canonicalVersion: sessionState.snapshot.snapshotId }
+    : result;
+  return jsonResponse(response, result.status === 'accepted' ? 202 : 400);
+}
+
+async function requeueBlockedProposals(workspaceId: string, bookId: string): Promise<void> {
+  if (process.env['DATABASE_URL'] === undefined || process.env['NODE_ENV'] === 'test') {
+    return;
+  }
+  const proposals = await listActiveProposalsForBook(workspaceId, bookId);
+  await Promise.all(proposals.map(async (proposal) => {
+    const workflow = resolveArtifactWorkflow(proposal.artifactType);
+    if (workflow === undefined) {
+      return;
+    }
+    const recovered = workflow.recoverFromBlocked(proposal, 'clean');
+    if (recovered.status !== proposal.status) {
+      await persistProposal(workspaceId, bookId, recovered);
+    }
+  }));
 }
 
 async function maybeDispatchSyntheticReviews({
@@ -603,7 +638,7 @@ async function applyPersistedProposalDecision({
       return;
     }
   }
-  updateArtifactDecisionStatus(store, envelope, decision.proposal.status);
+  updateArtifactDecisionStatus(store, envelope, decision.proposal.status, decision.canCommit);
   eventBus.publish({
     type: decision.canCommit ? 'artifact.canonical-committed' : 'artifact.approved',
     runId,
@@ -628,7 +663,7 @@ async function commitApprovedProposalDraft(input: {
 
   let validatedDraft: CanonicalDraft;
   try {
-    validatedDraft = validateCanonicalDraftForProposal(draft, input.proposal);
+    validatedDraft = createApprovedCanonicalDraft(draft, input.proposal);
   } catch (cause) {
     return cause instanceof Error ? cause.message : String(cause);
   }
@@ -641,20 +676,27 @@ async function commitApprovedProposalDraft(input: {
     proposalSnapshotId: input.proposal.basedOnCanonicalVersion,
     currentSnapshotId: input.currentSnapshotId,
   });
+  if (result.committed) {
+    input.store.recordInternalCanonicalCommit(validatedDraft.relativePath, validatedDraft.content);
+  }
   return result.committed ? undefined : result.reason;
 }
 
-function updateArtifactDecisionStatus(store: RuntimeStore, envelope: CommandEnvelope, proposalStatus: string): void {
+function updateArtifactDecisionStatus(
+  store: RuntimeStore,
+  envelope: CommandEnvelope,
+  proposalStatus: string,
+  canonicalCommitted = false,
+): void {
   if (envelope.artifactType === undefined || envelope.targetId === undefined) {
     return;
   }
   const existing = store.getArtifact(envelope.artifactType, envelope.targetId);
-  if (existing === undefined) {
-    return;
-  }
   store.upsertArtifact({
     ...existing,
-    canonicalStatus: existing.canonicalStatus ?? 'draft',
+    artifactType: envelope.artifactType,
+    targetId: envelope.targetId,
+    canonicalStatus: canonicalCommitted ? 'approved' : (existing?.canonicalStatus ?? 'draft'),
     proposalStatus,
     updatedAt: new Date().toISOString(),
   });
@@ -685,14 +727,16 @@ function syncArtifactSummary(
     return;
   }
 
-  store.upsertArtifact({
-    ...existing,
-    artifactType: envelope.artifactType,
-    targetId: envelope.targetId,
-    canonicalStatus: existing?.canonicalStatus ?? 'draft',
-    proposalStatus: resolveProposalStatus(envelope.intent, getWorkspaceValidity(envelope.workspaceId)),
-    updatedAt: result.acceptedAt,
-  });
+  if (envelope.intent !== 'approve' && envelope.intent !== 'override-approve' && envelope.intent !== 'reject' && envelope.intent !== 'export-draft') {
+    store.upsertArtifact({
+      ...existing,
+      artifactType: envelope.artifactType,
+      targetId: envelope.targetId,
+      canonicalStatus: existing?.canonicalStatus ?? 'draft',
+      proposalStatus: resolveProposalStatus(envelope.intent, getWorkspaceValidity(envelope.workspaceId)),
+      updatedAt: result.acceptedAt,
+    });
+  }
 }
 
 /**

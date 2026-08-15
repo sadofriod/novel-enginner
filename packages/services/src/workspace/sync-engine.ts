@@ -393,7 +393,7 @@ function buildSnapshot(
   entities: Map<string, CanonicalEntitySnapshot>,
 ): WorkspaceSnapshot {
   const snapshotId =
-    validity === 'invalid'
+    validity === 'invalid' || (validity === 'clean' && previousSnapshot !== undefined)
       ? (previousSnapshot?.snapshotId ?? nextSnapshotId(undefined))
       : nextSnapshotId(previousSnapshot);
   return { snapshotId, entities };

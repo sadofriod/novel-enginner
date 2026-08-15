@@ -68,6 +68,7 @@ export class RuntimeStore {
   private readonly syncSessionByWorkspaceId = new Map<string, WorkspaceSyncSession>();
   private readonly workspaceValidityById = new Map<string, import('../domain/values').WorkspaceValidity>();
   private readonly canonicalDraftByProposalId = new Map<string, CanonicalDraft>();
+  private readonly pendingInternalCanonicalContentByPath = new Map<string, string>();
   private readonly bootstrapSessionsById = new Map<string, BootstrapSession>();
   private readonly bootstrapRevisionsById = new Map<string, BootstrapRevision>();
   private readonly bootstrapEvidenceById = new Map<string, BootstrapEvidence>();
@@ -122,6 +123,18 @@ export class RuntimeStore {
 
   getCanonicalDraft(proposalId: string): CanonicalDraft | undefined {
     return this.canonicalDraftByProposalId.get(proposalId);
+  }
+
+  recordInternalCanonicalCommit(relativePath: string, content: string): void {
+    this.pendingInternalCanonicalContentByPath.set(relativePath, content);
+  }
+
+  consumeInternalCanonicalCommit(relativePath: string, content: string): boolean {
+    if (this.pendingInternalCanonicalContentByPath.get(relativePath) !== content) {
+      return false;
+    }
+    this.pendingInternalCanonicalContentByPath.delete(relativePath);
+    return true;
   }
 
   /** Lists every known artifact summary, for the Web console's approval queue. */

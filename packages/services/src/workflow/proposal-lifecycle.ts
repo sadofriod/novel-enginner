@@ -79,6 +79,9 @@ export function createProposal({ proposal, registry }: CreateProposalInput): Cre
   if (previousActive === undefined) {
     return { created: proposal };
   }
+  if (previousActive.proposalId === proposal.proposalId) {
+    return { created: proposal };
+  }
 
   const superseded: Proposal = { ...previousActive, status: 'superseded' };
   const created: Proposal = { ...proposal, supersedesProposalId: previousActive.proposalId };

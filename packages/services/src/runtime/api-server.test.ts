@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createApiServer } from './api-server';
 import { RunEventBus } from './event-bus';
 import { RuntimeStore } from './store';
+import { parseCanonicalMarkdown } from '../workspace/markdown';
 import { reSyncState } from '../workspace/sync-engine';
 
 const BASE_ENVELOPE = {
@@ -206,8 +207,15 @@ describe('command envelope validation', () => {
       });
 
       expect(response.status).toBe(202);
-      expect(await readFile(join(workspaceRoot, 'state/chapters/chapter-0042-outline.md'), 'utf8')).toBe(content);
-      expect(store.getArtifact('chapter-outline', 'chapter-0042-outline')?.proposalStatus).toBe('approved');
+      const written = parseCanonicalMarkdown(
+        await readFile(join(workspaceRoot, 'state/chapters/chapter-0042-outline.md'), 'utf8'),
+      );
+      expect(written.frontmatter).toMatchObject({ id: 'chapter-0042-outline', status: 'approved' });
+      expect(written.sections.get('Outline')).toBe('The chapter advances the investigation.');
+      expect(store.getArtifact('chapter-outline', 'chapter-0042-outline')).toMatchObject({
+        proposalStatus: 'approved',
+        canonicalStatus: 'approved',
+      });
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -247,7 +255,10 @@ describe('command envelope validation', () => {
       });
 
       expect(response.status).toBe(202);
-      expect(await readFile(join(workspaceRoot, 'state/chapters/chapter-0042-outline.md'), 'utf8')).toBe(content);
+      const written = parseCanonicalMarkdown(
+        await readFile(join(workspaceRoot, 'state/chapters/chapter-0042-outline.md'), 'utf8'),
+      );
+      expect(written.frontmatter).toMatchObject({ id: 'chapter-0042-outline', status: 'approved' });
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -467,7 +478,7 @@ describe('run / artifact lookup', () => {
     expect(response.status).toBe(303);
     expect(response.headers.get('location')).toBe('/app?artifactType=chapter-outline&targetId=chapter-0042-outline');
     const artifact = store.getArtifact('chapter-outline', 'chapter-0042-outline');
-    expect(artifact?.proposalStatus).toBe('approved');
+    expect(artifact?.proposalStatus).toBe('pending-approval');
     expect(artifact?.reviewStale).toBe(true);
     expect(artifact?.inlineEditNote).toBe('修正一个短标题');
   });
@@ -581,18 +592,31 @@ status: not-a-valid-status
     expect(response.status).toBe(400); // missing idempotencyKey/workspaceId/etc. by default
   });
 
-  test('POST /sync/re-sync-state accepts a full envelope body', async () => {
-    const { fetch } = createApiServer();
+  test('POST /sync/re-sync-state returns the current canonical version for a full file set', async () => {
+    const { fetch, store } = createApiServer();
     const response = await postJson(fetch, '/sync/re-sync-state', {
       workspaceId: 'workspace-cybernovel-001',
       bookId: 'book-quantum-ascension',
       requestedBy: 'author-local',
       approvalMode: 'manual',
       idempotencyKey: 'cmd-resync-001',
+      files: [{
+        path: 'state/characters/char-resync-version.md',
+        content: `---
+id: char-resync-version
+name: Resync Character
+status: active
+coreMotivation: survive
+worldview: pragmatic
+techLevel: tier-1
+---
+`,
+      }],
     });
     expect(response.status).toBe(202);
     const body = await response.json();
     expect(body.nextExpectedState).toBe('workspace-synced');
+    expect(body.canonicalVersion).toBe(store.getLastKnownSnapshot('workspace-cybernovel-001')?.snapshotId);
   });
 
   test('dispatches synthetic review when an approved canonical artifact is edited', async () => {

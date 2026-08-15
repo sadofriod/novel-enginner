@@ -3,6 +3,8 @@ import { describe, expect, test } from 'bun:test';
 import {
   CanonicalDraftValidationError,
   createChapterOutlineDraft,
+  createChapterManuscriptDraft,
+  createVolumeOutlineDraft,
   createValidatedCanonicalDraft,
   validateCanonicalDraftForProposal,
 } from './canonical-draft';
@@ -107,6 +109,67 @@ The investigation advances.
     })).toEqual({
       proposalId: 'proposal-chapter-0042',
       relativePath: 'state/chapters/chapter-0042-outline.md',
+      content,
+    });
+  });
+});
+
+describe('volume outline drafts', () => {
+  test('derives the canonical volume path and validates generated Markdown against its proposal', () => {
+    const content = `---
+id: volume-001
+title: First Tide
+status: planning
+sequenceNumber: 1
+goal: Establish the first mystery
+stage: opening
+chapterRoster: [chapter-0001-outline]
+targetChapterCount: 24
+requiredCluePayoffs: [clue-lantern]
+milestones: [milestone-harbor-arrival]
+---
+
+# Outline
+
+The first volume establishes the central conflict.
+`;
+
+    expect(createVolumeOutlineDraft({
+      proposalId: 'proposal-volume-001',
+      targetId: 'volume-001',
+      content,
+    })).toEqual({
+      proposalId: 'proposal-volume-001',
+      relativePath: 'state/volumes/volume-001.md',
+      content,
+    });
+  });
+});
+
+describe('chapter manuscript drafts', () => {
+  test('derives the canonical manuscript path from volumeId and proposal target', () => {
+    const content = `---
+id: chapter-0042
+chapterNumber: 42
+volumeId: volume-001
+basedOnOutlineId: chapter-0042-outline
+status: draft
+basedOnCanonicalVersion: snap-0001
+sceneAnchorIds: [scene-0042-entry]
+---
+
+# Scene scene-0042-entry
+
+The laboratory door opens.
+`;
+
+    expect(createChapterManuscriptDraft({
+      proposalId: 'proposal-chapter-0042-manuscript',
+      targetId: 'chapter-0042-manuscript',
+      content,
+    })).toEqual({
+      proposalId: 'proposal-chapter-0042-manuscript',
+      relativePath: 'manuscript/volume-001/chapter-0042.md',
       content,
     });
   });

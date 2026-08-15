@@ -73,6 +73,7 @@ model Proposal {
   updatedAt               DateTime @updatedAt
 
   run             Run              @relation(fields: [parentRunId], references: [runId])
+  canonicalDraft  ProposalDraft?
   reviewerResults ReviewerResult[]
   overrideAudits  OverrideAudit[]
 
@@ -80,6 +81,20 @@ model Proposal {
   @@index([targetId])
   @@index([status])
   @@map("proposals")
+}
+
+model ProposalDraft {
+  id           String   @id @default(uuid())
+  proposalId   String   @unique
+  relativePath String
+  content      String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  proposal Proposal @relation(fields: [proposalId], references: [proposalId], onDelete: Cascade)
+
+  @@index([proposalId])
+  @@map("proposal_drafts")
 }
 
 // ---------------------------------------------------------------------------

@@ -51,7 +51,7 @@ function parseCanonicalJson(file: WorkspaceFileInput): unknown {
   }
 }
 
-function parseCanonicalFile(file: WorkspaceFileInput): CanonicalEntitySnapshot {
+export function validateCanonicalFile(file: WorkspaceFileInput): CanonicalEntitySnapshot {
   const rule = resolveLayoutRuleForPath(file.path);
   if (rule === undefined) {
     throw new MarkdownContractError(`Path "${file.path}" does not match any canonical layout rule.`);
@@ -123,7 +123,7 @@ function ingestFile(
   errors: WorkspaceFileError[],
 ): void {
   try {
-    const entitySnapshot = parseCanonicalFile(file);
+    const entitySnapshot = validateCanonicalFile(file);
     const previousEntity = entities.get(file.path);
     if (previousEntity?.contentHash !== entitySnapshot.contentHash) {
       changedPaths.push(file.path);

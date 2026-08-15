@@ -31,6 +31,11 @@ export function applyProposalCommand(input: {
     return directDecision;
   }
 
+  const retry = resolveCommitRetry(envelope, proposal, workflow, input);
+  if (retry !== undefined) {
+    return retry;
+  }
+
   const approval = workflow.approve(
     proposal,
     input.currentCanonicalVersion,
@@ -42,6 +47,28 @@ export function applyProposalCommand(input: {
   }
 
   const commit = workflow.commit(approval.proposal, input.workspaceValidity);
+  return { accepted: true, proposal: commit.proposal, canCommit: commit.canCommit };
+}
+
+function resolveCommitRetry(
+  envelope: CommandEnvelope,
+  proposal: Proposal,
+  workflow: NonNullable<ReturnType<typeof resolveArtifactWorkflow>>,
+  input: {
+    readonly currentCanonicalVersion: string;
+    readonly workspaceValidity: WorkspaceValidity;
+  },
+): ProposalCommandLifecycleResult | undefined {
+  const matchesApprovedIntent = envelope.intent === 'approve' && proposal.status === 'approved';
+  const matchesOverrideIntent = envelope.intent === 'override-approve' && proposal.status === 'override-approved';
+  if (!matchesApprovedIntent && !matchesOverrideIntent) {
+    return undefined;
+  }
+  if (proposal.basedOnCanonicalVersion !== input.currentCanonicalVersion) {
+    return { accepted: false, reason: 'proposal snapshot is stale; regenerate before committing' };
+  }
+
+  const commit = workflow.commit(proposal, input.workspaceValidity);
   return { accepted: true, proposal: commit.proposal, canCommit: commit.canCommit };
 }
 

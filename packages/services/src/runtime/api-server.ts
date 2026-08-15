@@ -9,6 +9,7 @@ import { type WorkspaceFileInput } from '../workspace/sync-engine';
 import { handleCommand, validateCommandEnvelope, type CommandResult } from './command-handler';
 import {
   findPersistedCommandByIdempotencyKey,
+  findPersistedCanonicalDraft,
   findActiveProposalForTarget,
   findPersistedRun,
   persistCommand,
@@ -17,12 +18,13 @@ import {
   findOverrideAudit,
   updatePersistedRunStatus,
 } from '../persistence/operations';
-import type { CommandRecord, RunRecord } from './store';
+import type { CanonicalDraft, CommandRecord, RunRecord } from './store';
 import { applyProposalCommand } from '../workflow/command-lifecycle';
 import { buildDerivedGraph } from '../graph/derive';
 import { handleHandEditedArtifact } from '../agent/synthetic-review';
 import { commitCanonicalFile } from '../workspace/canonical-commit';
 import { resolveLayoutRuleForPath } from '../workspace/layout';
+import { validateCanonicalDraftForProposal } from './canonical-draft';
 import { RunEventBus } from './event-bus';
 import { listRegisteredRoutes } from './routes';
 import { matchRoute } from './routes/match-route';
@@ -60,6 +62,7 @@ export interface CreateApiServerOptions {
   ) => Promise<{ readonly command: CommandRecord; readonly run?: RunRecord } | undefined>;
   readonly loadActiveProposal?: (
     workspaceId: string,
+    bookId: string,
     artifactType: Proposal['artifactType'],
     targetId: string,
   ) => Promise<Proposal | undefined>;
@@ -68,6 +71,7 @@ export interface CreateApiServerOptions {
     bookId: string,
     proposal: Proposal,
   ) => Promise<void>;
+  readonly loadCanonicalDraft?: (proposalId: string) => Promise<CanonicalDraft | undefined>;
   readonly onRebuildGraph?: (
     workspaceId: string,
     bookId: string,
@@ -263,7 +267,8 @@ async function finalizeAcceptedCommand(
     options,
   });
 
-  if (!commandWasKnown && run !== undefined && dispatchCommand !== undefined) {
+  const isGenerationIntent = validation.envelope.intent === 'propose' || validation.envelope.intent === 'regenerate';
+  if (!commandWasKnown && isGenerationIntent && run !== undefined && dispatchCommand !== undefined) {
     const canonicalVersion = store.getLastKnownSnapshot(validation.envelope.workspaceId)?.snapshotId;
     await dispatchCommand(validation.envelope, run, canonicalVersion);
   }
@@ -535,7 +540,7 @@ async function applyPersistedProposalDecision({
     ?? (persistenceEnabled ? findActiveProposalForTarget : undefined);
   const proposal = loadActiveProposal === undefined
     ? undefined
-    : await loadActiveProposal(envelope.workspaceId, envelope.artifactType, envelope.targetId);
+    : await loadActiveProposal(envelope.workspaceId, envelope.bookId, envelope.artifactType, envelope.targetId);
   const snapshot = store.getLastKnownSnapshot(envelope.workspaceId);
   if (proposal === undefined || snapshot === undefined) {
     eventBus.publish({
@@ -572,12 +577,15 @@ async function applyPersistedProposalDecision({
   }
 
   if (decision.canCommit) {
+    const loadCanonicalDraft = options.loadCanonicalDraft
+      ?? (persistenceEnabled ? findPersistedCanonicalDraft : undefined);
     const commitFailure = await commitApprovedProposalDraft({
       store,
       workspaceRoot: options.workspaceRoot ?? process.cwd(),
       proposal: decision.proposal,
       currentSnapshotId: snapshot.snapshotId,
       workspaceValidity,
+      ...(loadCanonicalDraft !== undefined ? { loadCanonicalDraft } : {}),
     });
     if (commitFailure !== undefined) {
       updateArtifactDecisionStatus(store, envelope, decision.proposal.status);
@@ -605,16 +613,25 @@ async function commitApprovedProposalDraft(input: {
   readonly proposal: Proposal;
   readonly currentSnapshotId: string;
   readonly workspaceValidity: WorkspaceValidity;
+  readonly loadCanonicalDraft?: (proposalId: string) => Promise<CanonicalDraft | undefined>;
 }): Promise<string | undefined> {
-  const draft = input.store.getCanonicalDraft(input.proposal.proposalId);
+  const draft = input.store.getCanonicalDraft(input.proposal.proposalId)
+    ?? await input.loadCanonicalDraft?.(input.proposal.proposalId);
   if (draft === undefined) {
     return `canonical draft not found for proposal ${input.proposal.proposalId}`;
   }
 
+  let validatedDraft: CanonicalDraft;
+  try {
+    validatedDraft = validateCanonicalDraftForProposal(draft, input.proposal);
+  } catch (cause) {
+    return cause instanceof Error ? cause.message : String(cause);
+  }
+
   const result = await commitCanonicalFile({
     workspaceRoot: input.workspaceRoot,
-    relativePath: draft.relativePath,
-    content: draft.content,
+    relativePath: validatedDraft.relativePath,
+    content: validatedDraft.content,
     workspaceValidity: input.workspaceValidity,
     proposalSnapshotId: input.proposal.basedOnCanonicalVersion,
     currentSnapshotId: input.currentSnapshotId,

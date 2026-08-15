@@ -27,7 +27,7 @@ import { outlineChapter } from '../agent/plot-planner';
 import { createDefaultModelProvider } from '../agent/provider';
 import { generateWorldState } from '../agent/world-builder';
 import { assembleReviewerResult, DEFAULT_REVIEWER_RULE_THRESHOLDS } from '../agent/reviewer';
-import { listActiveProposalsForWorkspace, persistProposal, persistReviewerResult } from '../persistence/operations';
+import { listActiveProposalsForBook, persistProposal, persistReviewerResult } from '../persistence/operations';
 import { type Proposal } from '../domain/schema';
 import { resolveArtifactWorkflow } from './artifact-workflows';
 import { buildProposalRegistry } from './proposal-lifecycle';
@@ -53,7 +53,7 @@ async function createPersistedProposal(input: {
     );
   }
 
-  const activeProposals = await listActiveProposalsForWorkspace(input.workspaceId);
+  const activeProposals = await listActiveProposalsForBook(input.workspaceId, input.bookId);
   const workflow = resolveArtifactWorkflow(input.artifactType);
   if (workflow === undefined) {
     throw new NonRetriableError(`${input.artifactType} workflow not registered`);

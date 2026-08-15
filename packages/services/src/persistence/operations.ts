@@ -12,7 +12,8 @@
 import { Prisma } from '@prisma/client';
 import type { Proposal, ReviewerResult, OverrideAudit, CapabilityRegistrationState } from '../domain';
 import type { ProposalArtifactType } from '../domain/values';
-import type { CommandRecord, RunRecord } from '../runtime/store';
+import type { CanonicalDraft, CommandRecord, RunRecord } from '../runtime/store';
+import { createValidatedCanonicalDraft } from '../runtime/canonical-draft';
 
 import { prisma } from './client';
 import {
@@ -235,10 +236,14 @@ export async function findProposal(proposalId: string): Promise<Proposal | undef
   return row === null ? undefined : fromProposalRow(row as unknown as ProposalRow);
 }
 
-export async function listActiveProposalsForWorkspace(workspaceId: string): Promise<readonly Proposal[]> {
+export async function listActiveProposalsForBook(
+  workspaceId: string,
+  bookId: string,
+): Promise<readonly Proposal[]> {
   const rows = await prisma.proposal.findMany({
     where: {
       workspaceId,
+      bookId,
       status: {
         notIn: ['rejected', 'superseded', 'exported', 'deleted'],
       },
@@ -250,12 +255,14 @@ export async function listActiveProposalsForWorkspace(workspaceId: string): Prom
 
 export async function findActiveProposalForTarget(
   workspaceId: string,
+  bookId: string,
   artifactType: ProposalArtifactType,
   targetId: string,
 ): Promise<Proposal | undefined> {
   const row = await prisma.proposal.findFirst({
     where: {
       workspaceId,
+      bookId,
       artifactType,
       targetId,
       status: { notIn: ['rejected', 'superseded', 'exported', 'deleted'] },
@@ -263,6 +270,34 @@ export async function findActiveProposalForTarget(
     orderBy: { createdAt: 'desc' },
   });
   return row === null ? undefined : fromProposalRow(row as unknown as ProposalRow);
+}
+
+// ---------------------------------------------------------------------------
+// Proposal drafts
+// ---------------------------------------------------------------------------
+
+export async function persistCanonicalDraft(draft: CanonicalDraft): Promise<void> {
+  const validatedDraft = createValidatedCanonicalDraft(draft);
+  await prisma.proposalDraft.upsert({
+    where: { proposalId: validatedDraft.proposalId },
+    create: validatedDraft,
+    update: {
+      relativePath: validatedDraft.relativePath,
+      content: validatedDraft.content,
+    },
+  });
+}
+
+export async function findPersistedCanonicalDraft(proposalId: string): Promise<CanonicalDraft | undefined> {
+  const draft = await prisma.proposalDraft.findUnique({ where: { proposalId } });
+  if (draft === null) {
+    return undefined;
+  }
+  return {
+    proposalId: draft.proposalId,
+    relativePath: draft.relativePath,
+    content: draft.content,
+  };
 }
 
 // ---------------------------------------------------------------------------

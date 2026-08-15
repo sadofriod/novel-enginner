@@ -19,6 +19,27 @@ const BASE_ENVELOPE = {
   idempotencyKey: 'cmd-20260812-001',
 };
 
+const VALID_CHAPTER_OUTLINE_MARKDOWN = `---
+id: chapter-0042-outline
+chapterNumber: 42
+volumeId: volume-001
+chapterType: progress
+chapterTypeTags: [progress]
+status: draft
+targetWordCount: 1800
+sceneSkeleton:
+  - id: scene-0042-entry
+    purpose: Enter the ruined laboratory
+    locationId: location-ruined-lab
+    participantCharacterIds: [char-lin-mo]
+emotionCurveStageIds: [emotion-0042-1, emotion-0042-2, emotion-0042-3, emotion-0042-4]
+---
+
+# Outline
+
+The chapter advances the investigation.
+`;
+
 function postJson(fetch: (request: Request) => Promise<Response>, path: string, body: unknown): Promise<Response> {
   return fetch(
     new Request(`http://local.test${path}`, {
@@ -116,6 +137,41 @@ describe('command envelope validation', () => {
     expect(dispatched).toEqual(['chapter-outline:chapter-0042-outline']);
   });
 
+  test('does not dispatch approval commands to proposal-generation workflows', async () => {
+    const dispatched: string[] = [];
+    const loadedBookIds: string[] = [];
+    const snapshot = reSyncState([]).snapshot;
+    const store = new RuntimeStore();
+    store.setLastKnownSnapshot(BASE_ENVELOPE.workspaceId, snapshot);
+    const { fetch } = createApiServer({
+      store,
+      dispatchCommand: async (envelope) => {
+        dispatched.push(envelope.intent);
+      },
+      loadActiveProposal: async (_workspaceId, bookId) => {
+        loadedBookIds.push(bookId);
+        return {
+        proposalId: 'proposal-approval-dispatch-001',
+        artifactType: 'chapter-outline',
+        targetId: 'chapter-0042-outline',
+        status: 'pending-approval',
+        intent: 'propose',
+        basedOnCanonicalVersion: snapshot.snapshotId,
+        parentRunId: 'run-approval-dispatch-001',
+        };
+      },
+    });
+    const response = await postJson(fetch, '/commands', {
+      ...BASE_ENVELOPE,
+      intent: 'approve',
+      idempotencyKey: 'cmd-approval-dispatch-001',
+    });
+
+    expect(response.status).toBe(202);
+    expect(dispatched).toEqual([]);
+    expect(loadedBookIds).toEqual([BASE_ENVELOPE.bookId]);
+  });
+
   test('commits an approved proposal draft to the canonical workspace', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-enginner-'));
     const store = new RuntimeStore();
@@ -129,7 +185,7 @@ describe('command envelope validation', () => {
       basedOnCanonicalVersion: snapshot.snapshotId,
       parentRunId: 'run-proposal-001',
     };
-    const content = '---\nid: chapter-0042-outline\n---\n\n# Chapter Outline\n';
+    const content = VALID_CHAPTER_OUTLINE_MARKDOWN;
     store.setLastKnownSnapshot(BASE_ENVELOPE.workspaceId, snapshot);
     store.saveCanonicalDraft({
       proposalId: proposal.proposalId,
@@ -152,6 +208,46 @@ describe('command envelope validation', () => {
       expect(response.status).toBe(202);
       expect(await readFile(join(workspaceRoot, 'state/chapters/chapter-0042-outline.md'), 'utf8')).toBe(content);
       expect(store.getArtifact('chapter-outline', 'chapter-0042-outline')?.proposalStatus).toBe('approved');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('loads a canonical draft from the configured repository before approval commits', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-enginner-'));
+    const store = new RuntimeStore();
+    const snapshot = reSyncState([]).snapshot;
+    const proposal = {
+      proposalId: 'proposal-chapter-0042-persisted-draft',
+      artifactType: 'chapter-outline' as const,
+      targetId: 'chapter-0042-outline',
+      status: 'pending-approval' as const,
+      intent: 'propose' as const,
+      basedOnCanonicalVersion: snapshot.snapshotId,
+      parentRunId: 'run-proposal-persisted-draft',
+    };
+    const content = VALID_CHAPTER_OUTLINE_MARKDOWN;
+    store.setLastKnownSnapshot(BASE_ENVELOPE.workspaceId, snapshot);
+    const { fetch } = createApiServer({
+      store,
+      workspaceRoot,
+      loadActiveProposal: async () => proposal,
+      loadCanonicalDraft: async () => ({
+        proposalId: proposal.proposalId,
+        relativePath: 'state/chapters/chapter-0042-outline.md',
+        content,
+      }),
+    });
+
+    try {
+      const response = await postJson(fetch, '/commands', {
+        ...BASE_ENVELOPE,
+        intent: 'approve',
+        idempotencyKey: 'cmd-commit-canonical-persisted-draft',
+      });
+
+      expect(response.status).toBe(202);
+      expect(await readFile(join(workspaceRoot, 'state/chapters/chapter-0042-outline.md'), 'utf8')).toBe(content);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }

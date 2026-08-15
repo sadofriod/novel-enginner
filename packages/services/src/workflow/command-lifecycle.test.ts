@@ -75,6 +75,21 @@ describe('proposal command lifecycle', () => {
     }
   });
 
+  test('retries a previously approved canonical commit after an earlier write failure', () => {
+    const result = applyProposalCommand({
+      envelope: command('approve'),
+      proposal: proposal({ status: 'approved' }),
+      currentCanonicalVersion: 'snap-0001',
+      workspaceValidity: 'clean',
+    });
+
+    expect(result).toEqual({
+      accepted: true,
+      proposal: proposal({ status: 'approved' }),
+      canCommit: true,
+    });
+  });
+
   test('supports reject and export terminal decisions', () => {
     const rejected = applyProposalCommand({
       envelope: command('reject'),

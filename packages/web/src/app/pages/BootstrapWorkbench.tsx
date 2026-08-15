@@ -83,7 +83,7 @@ export function BootstrapWorkbench() {
       intent,
       requestedBy: 'author-local',
       approvalMode: 'manual',
-      idempotencyKey: `bootstrap-${intent}-${session.id}-${Date.now().toString(36)}`,
+      idempotencyKey: `bootstrap-${intent}-${session.id}-${Date.now().toString(36)}-${crypto.randomUUID()}`,
       sessionId: session.id,
       ...(summary.trim().length === 0 ? {} : { summary: summary.trim() }),
       ...(parsedMapping === undefined ? {} : { mapping: parsedMapping }),

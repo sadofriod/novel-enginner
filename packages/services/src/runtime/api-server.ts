@@ -276,8 +276,26 @@ async function applyConfirmedImport(
   if (session === undefined || session.path !== 'import') {
     throw new Error(`Import Bootstrap session "${sessionId}" was not found.`);
   }
+  if (session.currentStage !== 'import-mapping') {
+    throw new Error(`Import confirmation requires stage "import-mapping", received "${session.currentStage}".`);
+  }
   const result = await confirmImport({ sourceRoot, targetRoot, mapping: payload['mapping'] as ImportMapping });
+  const healthDraft: Record<string, unknown> = {
+    ready: result.healthReport.ready,
+    issues: result.healthReport.issues.map((issue) => ({ ...issue })),
+    missingArtifacts: [...result.healthReport.missingArtifacts],
+    prioritySequence: [...result.healthReport.prioritySequence],
+  };
   const emittedAt = new Date().toISOString();
+  const confirmationRevisionId = `bootstrap-revision-${runId}-confirm`;
+  store.upsertBootstrapRevision({
+    id: confirmationRevisionId,
+    sessionId,
+    stage: 'import-confirmation',
+    createdAt: emittedAt,
+    summary: 'Author confirmed import mapping. Canonical import copy started.',
+    mapping: payload['mapping'] as Record<string, unknown>,
+  });
   const revisionId = `bootstrap-revision-${runId}`;
   store.upsertBootstrapRevision({
     id: revisionId,
@@ -285,7 +303,7 @@ async function applyConfirmedImport(
     stage: 'import-health-report',
     createdAt: emittedAt,
     summary: 'Import confirmation completed and health report generated.',
-    draft: result.healthReport as unknown as Record<string, unknown>,
+    draft: healthDraft,
   });
   store.upsertBootstrapSession({
     ...session,
@@ -295,6 +313,8 @@ async function applyConfirmedImport(
     updatedAt: emittedAt,
   });
   return [
+    { type: 'bootstrap.session.updated', runId, emittedAt, data: { sessionId, revisionId: confirmationRevisionId } },
+    { type: 'bootstrap.stage.changed', runId, emittedAt, data: { sessionId, stage: 'import-confirmation' } },
     { type: 'bootstrap.session.updated', runId, emittedAt, data: { sessionId, revisionId } },
     { type: 'bootstrap.stage.changed', runId, emittedAt, data: { sessionId, stage: 'import-health-report' } },
   ];
@@ -313,9 +333,9 @@ async function persistBootstrapCommandState(
   if (session === undefined) {
     return;
   }
-  const revisionId = events.find((event) => typeof event.data?.['revisionId'] === 'string')?.data?.['revisionId'];
-  const revision = typeof revisionId === 'string'
-    ? store.listBootstrapRevisions(sessionId).find((candidate) => candidate.id === revisionId)
+  const latestRevisionId = [...events].reverse().find((event) => typeof event.data?.['revisionId'] === 'string')?.data?.['revisionId'];
+  const revision = typeof latestRevisionId === 'string'
+    ? store.listBootstrapRevisions(sessionId).find((candidate) => candidate.id === latestRevisionId)
     : undefined;
   if (persistBootstrapState !== undefined) {
     await persistBootstrapState(session, revision);

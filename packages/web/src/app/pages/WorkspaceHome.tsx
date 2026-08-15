@@ -22,6 +22,8 @@ export function WorkspaceHome() {
       navigate(`/bootstrap/${encodeURIComponent(sessionId)}`);
     });
   };
+  const recoverableSession = sessions.find((session) => !['completed', 'abandoned', 'failed'].includes(session.status));
+  const hasReadyBook = sessions.some((session) => session.status === 'ready-to-write');
 
   return (
     <main style={{ maxWidth: '960px', margin: '0 auto', padding: '32px 20px', display: 'grid', gap: '24px' }}>
@@ -32,7 +34,14 @@ export function WorkspaceHome() {
       <section style={{ display: 'flex', gap: '10px' }}>
         <button type="button" onClick={() => startSession('new-book')}>新建作品</button>
         <button type="button" onClick={() => startSession('import')}>导入作品</button>
-        <Link to="/app" style={{ color: '#1565c0' }}>书籍控制台</Link>
+        <button
+          type="button"
+          onClick={() => recoverableSession === undefined ? undefined : navigate(`/bootstrap/${encodeURIComponent(recoverableSession.id)}`)}
+          disabled={recoverableSession === undefined}
+        >
+          继续创建
+        </button>
+        {hasReadyBook ? <Link to="/app" style={{ color: '#1565c0' }}>书籍控制台</Link> : null}
       </section>
       <section>
         <h2 style={{ fontSize: '18px' }}>可恢复的初始化会话</h2>

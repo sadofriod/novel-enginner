@@ -64,4 +64,31 @@ describe('confirmImport', () => {
       await rm(targetRoot, { recursive: true, force: true });
     }
   });
+
+  test('copies unmapped references into references/imported with source diagnostics metadata', async () => {
+    const sourceRoot = await mkdtemp('/tmp/novel-import-source-');
+    const targetRoot = await mkdtemp('/tmp/novel-import-target-');
+    await writeFile(join(sourceRoot, 'notes.md'), 'loose notes');
+    try {
+      const result = await confirmImport({
+        sourceRoot,
+        targetRoot,
+        mapping: {
+          approved: true,
+          summary: 'confirmed',
+          entries: [
+            { sourcePath: 'notes.md', detectedKind: 'reference', confidence: 0.2, notes: 'needs manual classification' },
+          ],
+        },
+      });
+      expect(result.copiedPaths).toEqual(['references/imported/notes-md.md']);
+      const copied = await readFile(join(targetRoot, 'references/imported/notes-md.md'), 'utf8');
+      expect(copied).toContain('imported-reference');
+      expect(copied).toContain('sourcePath: notes.md');
+      expect(result.healthReport.issues.some((issue) => issue.code.includes('broken-reference'))).toBe(true);
+    } finally {
+      await rm(sourceRoot, { recursive: true, force: true });
+      await rm(targetRoot, { recursive: true, force: true });
+    }
+  });
 });

@@ -165,13 +165,20 @@ describe('command envelope validation', () => {
     });
     expect(create.status).toBe(202);
     try {
+      const scan = await postJson(fetch, '/commands', {
+        workspaceId: 'workspace-import-api', bookId: 'book-import-api', systemTaskType: 'scan-import-directory', intent: 'scan-import-directory', requestedBy: 'author-local', approvalMode: 'manual', idempotencyKey: 'scan-import-api', sessionId: 'bootstrap-import-api',
+        mapping: { approved: false, summary: 'preview', entries: [{ sourcePath: 'project-brief.md', detectedKind: 'project-brief', canonicalTarget: 'state/book/project-brief.md', confidence: 1 }] },
+      });
+      expect(scan.status).toBe(202);
       const response = await postJson(fetch, '/commands', {
         workspaceId: 'workspace-import-api', bookId: 'book-import-api', systemTaskType: 'confirm-import', intent: 'confirm-import', requestedBy: 'author-local', approvalMode: 'manual', idempotencyKey: 'confirm-import-api', sessionId: 'bootstrap-import-api', sourceRoot, targetRoot,
         mapping: { approved: true, summary: 'confirmed', entries: [{ sourcePath: 'project-brief.md', detectedKind: 'project-brief', canonicalTarget: 'state/book/project-brief.md', confidence: 1 }] },
       });
       expect(response.status).toBe(202);
       expect(store.getBootstrapSession('bootstrap-import-api')?.currentStage).toBe('import-health-report');
-      expect(store.listBootstrapRevisions('bootstrap-import-api')[0]?.draft).toMatchObject({ ready: false });
+      const revisions = store.listBootstrapRevisions('bootstrap-import-api');
+      expect(revisions.find((revision) => revision.stage === 'import-health-report')?.draft).toMatchObject({ ready: false });
+      expect(revisions.some((revision) => revision.stage === 'import-confirmation')).toBe(true);
       expect(await Bun.file(`${targetRoot}/state/book/project-brief.md`).text()).toBe('brief');
     } finally {
       await rm(sourceRoot, { recursive: true, force: true });

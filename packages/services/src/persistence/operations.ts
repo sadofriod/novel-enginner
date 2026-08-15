@@ -13,7 +13,7 @@ import { Prisma } from '@prisma/client';
 import type { Proposal, ReviewerResult, OverrideAudit, CapabilityRegistrationState } from '../domain';
 import type { ProposalArtifactType } from '../domain/values';
 import type { CanonicalDraft, CommandRecord, RunRecord } from '../runtime/store';
-import { createValidatedCanonicalDraft } from '../runtime/canonical-draft';
+import { validateCanonicalDraftForProposal } from '../runtime/canonical-draft';
 
 import { prisma } from './client';
 import {
@@ -276,8 +276,11 @@ export async function findActiveProposalForTarget(
 // Proposal drafts
 // ---------------------------------------------------------------------------
 
-export async function persistCanonicalDraft(draft: CanonicalDraft): Promise<void> {
-  const validatedDraft = createValidatedCanonicalDraft(draft);
+export async function persistCanonicalDraft(input: {
+  readonly draft: CanonicalDraft;
+  readonly proposal: Pick<Proposal, 'artifactType' | 'targetId'>;
+}): Promise<void> {
+  const validatedDraft = validateCanonicalDraftForProposal(input.draft, input.proposal);
   await prisma.proposalDraft.upsert({
     where: { proposalId: validatedDraft.proposalId },
     create: validatedDraft,

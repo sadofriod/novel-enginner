@@ -14,9 +14,9 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error('PORT must be an integer between 1 and 65535.');
 }
 
-const apiServer = createApiServer();
-const inngestHandler = serveInngest({ client: inngest, functions: inngestFunctions });
 const workspaceRoot = process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd();
+const apiServer = createApiServer({ workspaceRoot });
+const inngestHandler = serveInngest({ client: inngest, functions: inngestFunctions });
 const proposalArtifactTypeByCanonicalKind: Readonly<Record<string, string>> = {
   character: 'character-update',
   faction: 'faction-update',

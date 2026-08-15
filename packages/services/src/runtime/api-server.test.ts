@@ -474,6 +474,36 @@ describe('run / artifact lookup', () => {
 });
 
 describe('sync routes', () => {
+  test('POST /sync/re-sync-state without files preserves the existing snapshot', async () => {
+    const { fetch, store } = createApiServer();
+    const snapshot = reSyncState([
+      {
+        path: 'state/characters/char-lin-mo.md',
+        content: `---
+id: char-lin-mo
+name: Lin Mo
+status: active
+coreMotivation: Survive
+worldview: pragmatic
+techLevel: tier-1
+---
+`,
+      },
+    ]).snapshot;
+    store.setLastKnownSnapshot(BASE_ENVELOPE.workspaceId, snapshot);
+
+    const response = await postJson(fetch, '/sync/re-sync-state', {
+      workspaceId: BASE_ENVELOPE.workspaceId,
+      bookId: BASE_ENVELOPE.bookId,
+      requestedBy: BASE_ENVELOPE.requestedBy,
+      approvalMode: BASE_ENVELOPE.approvalMode,
+      idempotencyKey: 'cmd-resync-no-files-001',
+    });
+
+    expect(response.status).toBe(202);
+    expect(store.getLastKnownSnapshot(BASE_ENVELOPE.workspaceId)).toBe(snapshot);
+  });
+
   test('rebuild-graph projects a canonical derived graph into artifact details', async () => {
     const { fetch, store } = createApiServer();
     store.upsertArtifact({

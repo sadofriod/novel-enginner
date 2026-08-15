@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   CanonicalDraftValidationError,
+  createChapterOutlineDraft,
   createValidatedCanonicalDraft,
   validateCanonicalDraftForProposal,
 } from './canonical-draft';
@@ -73,5 +74,40 @@ describe('canonical draft validation', () => {
       artifactType: 'character-update',
       targetId: 'char-lin-mo',
     })).toThrow(CanonicalDraftValidationError);
+  });
+});
+
+describe('chapter outline drafts', () => {
+  test('derives the canonical chapter path and validates generated Markdown against its proposal', () => {
+    const content = `---
+id: chapter-0042-outline
+chapterNumber: 42
+volumeId: volume-001
+chapterType: progress
+chapterTypeTags: [progress]
+status: draft
+targetWordCount: 1800
+sceneSkeleton:
+  - id: scene-0042-entry
+    purpose: Enter the laboratory
+    locationId: location-lab
+    participantCharacterIds: []
+emotionCurveStageIds: [emotion-1, emotion-2, emotion-3, emotion-4]
+---
+
+# Outline
+
+The investigation advances.
+`;
+
+    expect(createChapterOutlineDraft({
+      proposalId: 'proposal-chapter-0042',
+      targetId: 'chapter-0042-outline',
+      content,
+    })).toEqual({
+      proposalId: 'proposal-chapter-0042',
+      relativePath: 'state/chapters/chapter-0042-outline.md',
+      content,
+    });
   });
 });

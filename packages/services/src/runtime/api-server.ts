@@ -391,7 +391,12 @@ async function handleReSyncState(
   }
 
   const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : 'default';
-  const files = Array.isArray(body['files']) ? (body['files'] as WorkspaceFileInput[]) : [];
+  if (!Array.isArray(body['files'])) {
+    const payload = { ...body, intent: 're-sync-state', systemTaskType: 're-sync-state' };
+    const result = handleCommand(payload, { store, eventBus, getWorkspaceValidity });
+    return jsonResponse(result, result.status === 'accepted' ? 202 : 400);
+  }
+  const files = body['files'] as WorkspaceFileInput[];
   const session = store.getOrCreateSyncSession(workspaceId);
   const sessionState = session.applySave(files);
   store.setLastKnownSnapshot(workspaceId, sessionState.snapshot);

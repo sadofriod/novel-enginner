@@ -27,8 +27,14 @@ import { outlineChapter } from '../agent/plot-planner';
 import { createDefaultModelProvider } from '../agent/provider';
 import { generateWorldState } from '../agent/world-builder';
 import { assembleReviewerResult, DEFAULT_REVIEWER_RULE_THRESHOLDS } from '../agent/reviewer';
-import { listActiveProposalsForBook, persistProposal, persistReviewerResult } from '../persistence/operations';
+import {
+  listActiveProposalsForBook,
+  persistCanonicalDraft,
+  persistProposal,
+  persistReviewerResult,
+} from '../persistence/operations';
 import { type Proposal } from '../domain/schema';
+import { createChapterOutlineDraft } from '../runtime/canonical-draft';
 import { resolveArtifactWorkflow } from './artifact-workflows';
 import { buildProposalRegistry } from './proposal-lifecycle';
 import { inngest } from './inngest-client';
@@ -136,8 +142,17 @@ export const chapterOutlineFunction = inngest.createFunction(
         artifactType: 'chapter-outline',
         targetId,
         canonicalContext: worldState.text,
-        instructions: 'Generate a structured chapter outline with scenes, causality, and emotional progression.',
+        instructions: `Return only complete canonical Markdown for state/chapters/${targetId}.md. Include every required ChapterOutline frontmatter field and use the target id exactly.`,
       }, provider);
+    });
+
+    await step.run('persist-canonical-draft', async () => {
+      const draft = createChapterOutlineDraft({
+        proposalId: proposalResult.created.proposalId,
+        targetId,
+        content: chapterOutline.text,
+      });
+      await persistCanonicalDraft({ draft, proposal: proposalResult.created });
     });
 
     const actorValidation = await step.run('actor-validate', async () => {

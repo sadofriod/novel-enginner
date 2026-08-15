@@ -52,6 +52,22 @@ export function validateCanonicalDraftForProposal(
   return validatedDraft;
 }
 
+export function createChapterOutlineDraft(input: {
+  readonly proposalId: string;
+  readonly targetId: string;
+  readonly content: string;
+}): CanonicalDraft {
+  const draft: CanonicalDraft = {
+    proposalId: input.proposalId,
+    relativePath: `state/chapters/${input.targetId}.md`,
+    content: input.content,
+  };
+  return validateCanonicalDraftForProposal(draft, {
+    artifactType: 'chapter-outline',
+    targetId: input.targetId,
+  });
+}
+
 function validateProposalTarget(
   draft: CanonicalDraft,
   entityKind: string,

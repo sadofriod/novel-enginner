@@ -254,7 +254,7 @@ describe('command envelope validation', () => {
   });
 
   test('commits an approved proposal draft to the canonical workspace', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-enginner-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-engineer-'));
     const store = new RuntimeStore();
     const snapshot = reSyncState([]).snapshot;
     const proposal = {
@@ -302,7 +302,7 @@ describe('command envelope validation', () => {
   });
 
   test('commits bundled canonical drafts atomically with the approved proposal', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-enginner-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-engineer-'));
     const store = new RuntimeStore();
     const snapshot = reSyncState([]).snapshot;
     const proposal = {
@@ -385,7 +385,7 @@ describe('command envelope validation', () => {
   });
 
   test('loads a canonical draft from the configured repository before approval commits', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-enginner-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-engineer-'));
     const store = new RuntimeStore();
     const snapshot = reSyncState([]).snapshot;
     const proposal = {
@@ -531,7 +531,7 @@ describe('command envelope validation', () => {
   });
 
   test('commits only after a clean-workspace approval confirms a waiting-sync proposal', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-enginner-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-engineer-'));
     const store = new RuntimeStore();
     const snapshot = reSyncState([]).snapshot;
     let workspaceValidity: 'clean' | 'dirty' = 'dirty';

@@ -301,6 +301,89 @@ describe('command envelope validation', () => {
     }
   });
 
+  test('commits bundled canonical drafts atomically with the approved proposal', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-enginner-'));
+    const store = new RuntimeStore();
+    const snapshot = reSyncState([]).snapshot;
+    const proposal = {
+      proposalId: 'proposal-chapter-0042-bundle-001',
+      artifactType: 'chapter-outline' as const,
+      targetId: 'chapter-0042-outline',
+      status: 'pending-approval' as const,
+      intent: 'propose' as const,
+      basedOnCanonicalVersion: snapshot.snapshotId,
+      parentRunId: 'run-proposal-bundle-001',
+      bundledDiffRefs: ['draft-character-mira-bundle-001'],
+    };
+    store.setLastKnownSnapshot(BASE_ENVELOPE.workspaceId, snapshot);
+    store.saveCanonicalDraft({
+      proposalId: proposal.proposalId,
+      relativePath: 'state/chapters/chapter-0042-outline.md',
+      content: VALID_CHAPTER_OUTLINE_MARKDOWN,
+    });
+    store.saveCanonicalDraft({
+      proposalId: 'draft-character-mira-bundle-001',
+      relativePath: 'state/characters/char-mira.md',
+      content: '---\nid: char-mira\nname: Mira\n---\n',
+    });
+    const { fetch } = createApiServer({
+      store,
+      workspaceRoot,
+      loadActiveProposal: async () => proposal,
+    });
+
+    try {
+      const response = await postJson(fetch, '/commands', {
+        ...BASE_ENVELOPE,
+        intent: 'approve',
+        idempotencyKey: 'cmd-commit-canonical-bundle-001',
+      });
+
+      expect(response.status).toBe(202);
+      expect(await readFile(join(workspaceRoot, 'state/chapters/chapter-0042-outline.md'), 'utf8'))
+        .toContain('status: approved');
+      expect(await readFile(join(workspaceRoot, 'state/characters/char-mira.md'), 'utf8'))
+        .toContain('id: char-mira');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps approval retryable when a bundled canonical draft is unavailable', async () => {
+    const store = new RuntimeStore();
+    const snapshot = reSyncState([]).snapshot;
+    const proposal = {
+      proposalId: 'proposal-chapter-0042-missing-bundle-001',
+      artifactType: 'chapter-outline' as const,
+      targetId: 'chapter-0042-outline',
+      status: 'pending-approval' as const,
+      intent: 'propose' as const,
+      basedOnCanonicalVersion: snapshot.snapshotId,
+      parentRunId: 'run-proposal-missing-bundle-001',
+      bundledDiffRefs: ['draft-character-missing-001'],
+    };
+    store.setLastKnownSnapshot(BASE_ENVELOPE.workspaceId, snapshot);
+    store.saveCanonicalDraft({
+      proposalId: proposal.proposalId,
+      relativePath: 'state/chapters/chapter-0042-outline.md',
+      content: VALID_CHAPTER_OUTLINE_MARKDOWN,
+    });
+    const { fetch, eventBus } = createApiServer({
+      store,
+      loadActiveProposal: async () => proposal,
+    });
+
+    const response = await postJson(fetch, '/commands', {
+      ...BASE_ENVELOPE,
+      intent: 'approve',
+      idempotencyKey: 'cmd-commit-missing-bundle-001',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(eventBus.history(body.runId).at(-1)?.type).toBe('run.step.failed');
+  });
+
   test('loads a canonical draft from the configured repository before approval commits', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-enginner-'));
     const store = new RuntimeStore();

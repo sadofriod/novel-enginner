@@ -34,6 +34,14 @@ export default tseslint.config(
     },
     rules: {
       complexity: ['error', { max: 5 }],
+      'max-lines': [
+        'error',
+        {
+          max: 400,
+          skipBlankLines: true,
+          skipComments: true,
+        },
+      ],
     },
   },
   {
@@ -66,14 +74,6 @@ export default tseslint.config(
           skipBlankLines: true,
           skipComments: true,
           IIFEs: true,
-        },
-      ],
-      'max-lines': [
-        'error',
-        {
-          max: 400,
-          skipBlankLines: true,
-          skipComments: true,
         },
       ],
     },

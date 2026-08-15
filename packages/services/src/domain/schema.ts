@@ -5,8 +5,6 @@ import {
   BELIEF_STATE_VALUES,
   BOOK_STATUS_VALUES,
   CANONICAL_ARTIFACT_STATUS_VALUES,
-  CAPABILITY_KIND_VALUES,
-  CAPABILITY_REGISTRATION_STATUS_VALUES,
   CHAPTER_TYPE_VALUES,
   COMMAND_INTENT_VALUES,
   EMOTION_CURVE_STAGE_TYPE_VALUES,
@@ -25,16 +23,17 @@ import {
   WORKSPACE_VALIDITY_VALUES,
 } from './values';
 
+export * from './registry-schemas';
+export * from './schema-types';
+
 const StableIdSchema = z
   .string()
   .trim()
   .min(1)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
-const NonEmptyStringSchema = z.string().trim().min(1);
-const PositiveIntegerSchema = z.number().int().positive();
-const ScoreSchema = z.number().int().min(0).max(100);
-const ConfidenceSchema = z.number().min(0).max(1);
+const NonEmptyStringSchema = z.string().trim().min(1); const PositiveIntegerSchema = z.number().int().positive();
+const ScoreSchema = z.number().int().min(0).max(100); const ConfidenceSchema = z.number().min(0).max(1);
 
 export const EntityVersionRefSchema = z
   .object({
@@ -436,100 +435,3 @@ export const WorkspaceValidityStateSchema = z
     lastKnownGoodSnapshot: StableIdSchema.optional(),
   })
   .readonly();
-
-export const ReviewerRulesSchema = z
-  .object({
-    paragraphMinChars: PositiveIntegerSchema.optional(),
-    paragraphMaxChars: PositiveIntegerSchema.optional(),
-    bannedTerms: z.array(NonEmptyStringSchema).readonly().optional(),
-    maxRewriteRounds: PositiveIntegerSchema.optional(),
-    contextWindowChapters: PositiveIntegerSchema.optional(),
-  })
-  .catchall(z.unknown())
-  .readonly();
-
-export const VocabularyEntrySchema = z
-  .object({
-    id: StableIdSchema,
-    term: NonEmptyStringSchema,
-    aliases: z.array(NonEmptyStringSchema).readonly().optional(),
-    definition: NonEmptyStringSchema.optional(),
-    notes: NonEmptyStringSchema.optional(),
-  })
-  .readonly();
-
-export const VocabularyRegistrySchema = z
-  .object({
-    entries: z.array(VocabularyEntrySchema).readonly().optional(),
-    vocabularies: z.array(VocabularyEntrySchema).readonly().optional(),
-    version: StableIdSchema.optional(),
-  })
-  .catchall(z.unknown())
-  .readonly();
-
-export const CapabilityRegistryEntrySchema = z
-  .object({
-    id: StableIdSchema,
-    type: z.enum(CAPABILITY_KIND_VALUES),
-    enabled: z.boolean().optional(),
-    visibility: z.enum(['public', 'restricted']).optional(),
-    allowedAgents: z.array(z.string()).readonly().optional(),
-    applicableArtifactTypes: z.array(NonEmptyStringSchema).readonly().optional(),
-  })
-  .readonly();
-
-export const CapabilityRegistrySchema = z
-  .object({
-    capabilities: z.array(CapabilityRegistryEntrySchema).readonly(),
-  })
-  .readonly();
-
-export const CapabilityRegistrationStateSchema = z
-  .object({
-    status: z.enum(CAPABILITY_REGISTRATION_STATUS_VALUES),
-    capabilityId: StableIdSchema.optional(),
-    source: NonEmptyStringSchema.optional(),
-    details: NonEmptyStringSchema.optional(),
-  })
-  .readonly();
-
-export type StableId = z.infer<typeof StableIdSchema>;
-export type EntityVersionRef = z.infer<typeof EntityVersionRefSchema>;
-export type DefaultChapterTypePolicy = z.infer<typeof DefaultChapterTypePolicySchema>;
-export type Fact = z.infer<typeof FactSchema>;
-export type BeliefRecord = z.infer<typeof BeliefRecordSchema>;
-export type Book = z.infer<typeof BookSchema>;
-export type ProjectBrief = z.infer<typeof ProjectBriefSchema>;
-export type WorldFoundation = z.infer<typeof WorldFoundationSchema>;
-export type StoryBlueprint = z.infer<typeof StoryBlueprintSchema>;
-export type Volume = z.infer<typeof VolumeSchema>;
-export type Character = z.infer<typeof CharacterSchema>;
-export type PlanningAnchor = z.infer<typeof PlanningAnchorSchema>;
-export type Relationship = z.infer<typeof RelationshipSchema>;
-export type Resource = z.infer<typeof ResourceSchema>;
-export type Faction = z.infer<typeof FactionSchema>;
-export type Location = z.infer<typeof LocationSchema>;
-export type TechRule = z.infer<typeof TechRuleSchema>;
-export type PlotClue = z.infer<typeof PlotClueSchema>;
-export type SceneParticipantState = z.infer<typeof SceneParticipantStateSchema>;
-export type SceneStateSlice = z.infer<typeof SceneStateSliceSchema>;
-export type SceneSkeleton = z.infer<typeof SceneSkeletonSchema>;
-export type EmotionCurveStage = z.infer<typeof EmotionCurveStageSchema>;
-export type ChapterOutline = z.infer<typeof ChapterOutlineSchema>;
-export type ChapterManuscript = z.infer<typeof ChapterManuscriptSchema>;
-export type Proposal = z.infer<typeof ProposalSchema>;
-export type BudgetOverride = z.infer<typeof BudgetOverrideSchema>;
-export type CommandEnvelope = z.infer<typeof CommandEnvelopeSchema>;
-export type ReviewHardFailure = z.infer<typeof ReviewHardFailureSchema>;
-export type DimensionScores = z.infer<typeof DimensionScoresSchema>;
-export type ReviewerResult = z.infer<typeof ReviewerResultSchema>;
-export type OverrideAudit = z.infer<typeof OverrideAuditSchema>;
-export type ReviewFreshnessState = z.infer<typeof ReviewFreshnessStateSchema>;
-export type ManualRiskState = z.infer<typeof ManualRiskStateSchema>;
-export type WorkspaceValidityState = z.infer<typeof WorkspaceValidityStateSchema>;
-export type ReviewerRules = z.infer<typeof ReviewerRulesSchema>;
-export type VocabularyEntry = z.infer<typeof VocabularyEntrySchema>;
-export type VocabularyRegistry = z.infer<typeof VocabularyRegistrySchema>;
-export type CapabilityRegistryEntry = z.infer<typeof CapabilityRegistryEntrySchema>;
-export type CapabilityRegistry = z.infer<typeof CapabilityRegistrySchema>;
-export type CapabilityRegistrationState = z.infer<typeof CapabilityRegistrationStateSchema>;

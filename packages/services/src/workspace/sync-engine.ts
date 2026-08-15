@@ -42,27 +42,35 @@ function hashContent(content: string): string {
   return (hash >>> 0).toString(16);
 }
 
+function parseCanonicalJson(file: WorkspaceFileInput): unknown {
+  try {
+    return JSON.parse(file.content) as unknown;
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw new MarkdownContractError(`Failed to parse JSON for "${file.path}": ${message}`);
+  }
+}
+
 function parseCanonicalFile(file: WorkspaceFileInput): CanonicalEntitySnapshot {
   const rule = resolveLayoutRuleForPath(file.path);
   if (rule === undefined) {
     throw new MarkdownContractError(`Path "${file.path}" does not match any canonical layout rule.`);
   }
 
-  const parsed = parseCanonicalMarkdown(file.content);
-  const result = rule.schema.safeParse(parsed.frontmatter);
+  const isJson = file.path.endsWith('.json');
+  const parsedMarkdown = isJson ? undefined : parseCanonicalMarkdown(file.content);
+  const payload = isJson ? parseCanonicalJson(file) : parsedMarkdown?.frontmatter;
+  const result = rule.schema.safeParse(payload);
   if (!result.success) {
     throw new MarkdownContractError(
       `Frontmatter for "${file.path}" failed ${rule.kind} schema validation: ${result.error.message}`,
     );
   }
 
-  // docs/architecture/modules/03-domain-model.md §3.9:
-  // A chapter-manuscript body must contain a `# Scene {id}` heading for each id
-  // declared in `sceneAnchorIds`. Missing or extra anchors are a contract violation.
-  if (rule.kind === 'chapter-manuscript') {
+  if (!isJson && rule.kind === 'chapter-manuscript' && parsedMarkdown !== undefined) {
     const frontmatter = result.data as { sceneAnchorIds?: readonly string[] };
     const declaredIds = frontmatter.sceneAnchorIds ?? [];
-    const bodySceneIds = new Set(parsed.scenes.keys());
+    const bodySceneIds = new Set(parsedMarkdown.scenes.keys());
 
     const missing = declaredIds.filter((id) => !bodySceneIds.has(id));
     const extra = [...bodySceneIds].filter((id) => !declaredIds.includes(id));

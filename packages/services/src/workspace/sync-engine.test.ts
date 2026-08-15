@@ -340,6 +340,29 @@ This file is the canonical authority for capability enablement.
     expect(result.snapshot.entities.get('state/capabilities/registry.md')?.kind).toBe('capability-registry');
     expect((result.snapshot.entities.get('state/capabilities/registry.md')?.data as { capabilities: unknown[] }).capabilities).toHaveLength(1);
   });
+
+  test('accepts reviewer rules and vocabulary registry JSON as canonical workspace config', () => {
+    const reviewerRules = JSON.stringify({
+      paragraphMinChars: 50,
+      paragraphMaxChars: 150,
+      bannedTerms: ['AI-sentiment'],
+    });
+    const vocabularyRegistry = JSON.stringify({
+      entries: [
+        { id: 'term-lab', term: 'lab', aliases: ['实验室'], definition: 'The research site.' },
+      ],
+    });
+
+    const result = reSyncState([
+      { path: 'state/reviewer/rules.json', content: reviewerRules },
+      { path: 'state/vocabularies/registry.json', content: vocabularyRegistry },
+    ]);
+
+    expect(result.validity).toBe('dirty');
+    expect(result.errors).toEqual([]);
+    expect(result.snapshot.entities.get('state/reviewer/rules.json')?.kind).toBe('reviewer-rules');
+    expect(result.snapshot.entities.get('state/vocabularies/registry.json')?.kind).toBe('vocabulary-registry');
+  });
 });
 
 describe('WorkspaceSyncSession', () => {

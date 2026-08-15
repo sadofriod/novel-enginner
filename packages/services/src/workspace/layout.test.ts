@@ -12,4 +12,9 @@ describe('canonical workspace layout', () => {
   test('includes the bootstrap directories in the canonical directory list', () => {
     expect(listCanonicalDirectories()).toEqual(expect.arrayContaining(['state/book', 'state/world']));
   });
+
+  test('recognizes the reviewer rules and vocabulary config directories', () => {
+    expect(resolveLayoutRuleForPath('state/reviewer/rules.json')?.kind).toBe('reviewer-rules');
+    expect(resolveLayoutRuleForPath('state/vocabularies/registry.json')?.kind).toBe('vocabulary-registry');
+  });
 });

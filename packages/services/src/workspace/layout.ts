@@ -14,8 +14,10 @@ import {
   CapabilityRegistrySchema,
   RelationshipSchema,
   ResourceSchema,
+  ReviewerRulesSchema,
   StoryBlueprintSchema,
   TechRuleSchema,
+  VocabularyRegistrySchema,
   WorldFoundationSchema,
   VolumeSchema,
 } from '../domain/schema';
@@ -38,6 +40,8 @@ export const CANONICAL_ENTITY_KIND_VALUES = [
   'plot-clue',
   'planning-anchor',
   'capability-registry',
+  'reviewer-rules',
+  'vocabulary-registry',
 ] as const;
 
 export type CanonicalEntityKind = (typeof CANONICAL_ENTITY_KIND_VALUES)[number];
@@ -166,6 +170,18 @@ export const CANONICAL_LAYOUT_RULES: readonly CanonicalLayoutRule[] = [
     directory: 'state/capabilities',
     filePattern: /^registry\.md$/,
     schema: CapabilityRegistrySchema,
+  },
+  {
+    kind: 'reviewer-rules',
+    directory: 'state/reviewer',
+    filePattern: /^rules\.json$/,
+    schema: ReviewerRulesSchema,
+  },
+  {
+    kind: 'vocabulary-registry',
+    directory: 'state/vocabularies',
+    filePattern: /^.+\.json$/,
+    schema: VocabularyRegistrySchema,
   },
 ];
 

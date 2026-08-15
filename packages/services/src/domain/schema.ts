@@ -437,6 +437,36 @@ export const WorkspaceValidityStateSchema = z
   })
   .readonly();
 
+export const ReviewerRulesSchema = z
+  .object({
+    paragraphMinChars: PositiveIntegerSchema.optional(),
+    paragraphMaxChars: PositiveIntegerSchema.optional(),
+    bannedTerms: z.array(NonEmptyStringSchema).readonly().optional(),
+    maxRewriteRounds: PositiveIntegerSchema.optional(),
+    contextWindowChapters: PositiveIntegerSchema.optional(),
+  })
+  .catchall(z.unknown())
+  .readonly();
+
+export const VocabularyEntrySchema = z
+  .object({
+    id: StableIdSchema,
+    term: NonEmptyStringSchema,
+    aliases: z.array(NonEmptyStringSchema).readonly().optional(),
+    definition: NonEmptyStringSchema.optional(),
+    notes: NonEmptyStringSchema.optional(),
+  })
+  .readonly();
+
+export const VocabularyRegistrySchema = z
+  .object({
+    entries: z.array(VocabularyEntrySchema).readonly().optional(),
+    vocabularies: z.array(VocabularyEntrySchema).readonly().optional(),
+    version: StableIdSchema.optional(),
+  })
+  .catchall(z.unknown())
+  .readonly();
+
 export const CapabilityRegistryEntrySchema = z
   .object({
     id: StableIdSchema,
@@ -497,6 +527,9 @@ export type OverrideAudit = z.infer<typeof OverrideAuditSchema>;
 export type ReviewFreshnessState = z.infer<typeof ReviewFreshnessStateSchema>;
 export type ManualRiskState = z.infer<typeof ManualRiskStateSchema>;
 export type WorkspaceValidityState = z.infer<typeof WorkspaceValidityStateSchema>;
+export type ReviewerRules = z.infer<typeof ReviewerRulesSchema>;
+export type VocabularyEntry = z.infer<typeof VocabularyEntrySchema>;
+export type VocabularyRegistry = z.infer<typeof VocabularyRegistrySchema>;
 export type CapabilityRegistryEntry = z.infer<typeof CapabilityRegistryEntrySchema>;
 export type CapabilityRegistry = z.infer<typeof CapabilityRegistrySchema>;
 export type CapabilityRegistrationState = z.infer<typeof CapabilityRegistrationStateSchema>;

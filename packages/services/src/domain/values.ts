@@ -37,6 +37,7 @@ export const PROPOSAL_STATUS_VALUES = [
   'approved',
   'rejected',
   'override-approved',
+  'review-blocked',
   'superseded',
   'commit-blocked',
   'waiting-sync',

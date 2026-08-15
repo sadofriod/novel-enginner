@@ -1,6 +1,6 @@
 /* eslint-disable complexity */
 
-import type { CommandEnvelope, Proposal } from '../domain';
+import type { CommandEnvelope, Proposal, ReviewerResult } from '../domain';
 import type { WorkspaceValidity } from '../domain/values';
 
 import { resolveArtifactWorkflow } from './artifact-workflows';
@@ -14,6 +14,8 @@ export function applyProposalCommand(input: {
   readonly proposal: Proposal;
   readonly currentCanonicalVersion: string;
   readonly workspaceValidity: WorkspaceValidity;
+  readonly reviewerResult?: ReviewerResult;
+  readonly requireReviewerResult?: boolean;
 }): ProposalCommandLifecycleResult {
   const { envelope, proposal } = input;
   const mismatch = validateProposalTarget(envelope, proposal);
@@ -41,6 +43,8 @@ export function applyProposalCommand(input: {
     input.currentCanonicalVersion,
     envelope.intent === 'override-approve',
     envelope.intent === 'override-approve' ? `override-${proposal.proposalId}` : undefined,
+    input.reviewerResult,
+    input.requireReviewerResult,
   );
   if (!approval.accepted) {
     return { accepted: false, reason: approval.message };

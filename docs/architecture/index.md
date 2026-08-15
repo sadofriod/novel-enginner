@@ -45,14 +45,34 @@
 - [10-v1-execution-plan.md](./modules/10-v1-execution-plan.md) 把完整 V1 拆成可顺序实施的工作包和验收条件。
 - [11-bootstrap-and-onboarding.md](./modules/11-bootstrap-and-onboarding.md) 定义进入既有 proposal 主流程之前的新书与导入路径。
 
-## 当前仓库与目标架构的差距
+## 当前实现状态与目标架构的差距
 
-- 当前 `package.json` 还没有 `inngest`、`@xyflow/react`、用于 pgvector 的数据库扩展接入等运行时依赖。
-- 当前仓库还没有 `state/`、`manuscript/`、`prompts/`、`graph/`、`runtime/`、`drafts/` 等工作区目录。
-- 当前文档先落架构，不假设代码已经存在。
+状态基线：2026-08-15。仓库已经从“只落架构文档”进入 V1 分阶段实现阶段；以下状态描述当前代码，不替代模块 01-11 中的目标合同。
 
-建议后续按以下顺序推进：
+### 已落地的基础能力
 
-1. 先建 canonical 工作区目录和 Markdown schema。
-2. 再落 Bun 服务、命令 API、SSE 事件流和 Inngest workflow。
-3. 最后接 Web 控制台、图谱和细化 Reviewer/Actor 契约。
+- `package.json` 已接入 Bun 服务、Inngest、React Flow、Prisma、pgvector migration 和 Web 控制台所需的主要依赖。
+- canonical 工作区样例已经存在于 `state/`、`manuscript/`、`prompts/`，服务端实现位于 `packages/services/src/`，Web 控制台位于 `packages/web/src/`。
+- 领域 schema、Markdown round-trip、workspace snapshot、invalid workspace guard、synthetic commit 和 canonical path 规则已有基础实现。
+- Proposal、Run、Reviewer/Override audit、bootstrap session/revision/evidence 的 Prisma 模型和部分 repository 已存在。
+- Bun API、SSE、CLI、Inngest client/workflow skeleton、graph/search 初版和 capability registry 初版已经存在。
+
+### 尚未满足的 V1 闭环
+
+以下项目是当前实现与文档硬约束之间的主要差距，详细交付顺序和验收方式见 [10-v1-execution-plan.md](./modules/10-v1-execution-plan.md)：
+
+1. 审批路径仍需完整接入 ReviewerResult、不可豁免硬失败和 OverrideAudit provenance。
+2. canonical commit 仍需支持 bundled diff 的原子提交，以及同一本书跨 workflow 共享的串行 commit lane。
+3. chapter-manuscript 的 outline canonical 前置条件、Reviewer 失败状态和 commit-blocked/waiting-sync 恢复流程仍需补齐。
+4. bootstrap 仍需完成 project-brief 批准时 Book、canonical brief 和首个 snapshot 的原子初始化，并补足阶段、revision、恢复和导入边界校验。
+5. 受控词表、emotion curve、scene anchors、引用目标 kind 和 manuscript/outline 一致性校验仍需收紧。
+6. graph/search 需要完成 workspace/book 隔离、知识边语义和可重建性；capability discovery 需要覆盖 registry、MCP、skill、agent 和 prompt-pack 全部来源。
+7. API、CLI、SSE、Web 控制台和 Prisma/Inngest 组合路径仍需覆盖文档 10.12 的完整验收矩阵。
+
+### 当前验收依据
+
+- 规范来源仍是模块 01-08，模块 09 是决策索引，模块 10 是实施顺序和验收矩阵，模块 11 是 bootstrap 与导入合同。
+- “已存在代码”不等于“V1 已完成”；只有通过对应的 runtime、数据库和 Playwright 验收，能力才可视为完成。
+- 所有实现阶段都必须通过 `pnpm typecheck`、`pnpm test` 和 `pnpm exec eslint .`；涉及数据库、浏览器或 Inngest 的阶段还必须执行对应的集成检查。
+
+建议实施顺序：先完成审批门禁和 canonical 原子提交，再完成 workflow/bootstrap 边界与领域校验，随后补齐 graph/search/capability、API/Web 体验，最后执行完整的 V1 验收矩阵。

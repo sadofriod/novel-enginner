@@ -1,4 +1,4 @@
-/* eslint-disable max-lines-per-function */
+/* eslint-disable complexity, max-lines-per-function */
 
 /**
  * Inngest function definitions for the novel-enginner workflow pipeline, per
@@ -298,6 +298,9 @@ export const chapterManuscriptFunction = inngest.createFunction(
       if (artifact.proposalStatus === 'pending-review' || artifact.proposalStatus === 'pending-approval') {
         return { blocked: true, reason: `chapter-outline ${outlineId} is still ${artifact.proposalStatus}` };
       }
+      if (artifact.canonicalStatus !== 'approved') {
+        return { blocked: true, reason: `chapter-outline ${outlineId} is not canonical-approved` };
+      }
       return { blocked: false as const };
     });
 
@@ -368,6 +371,23 @@ export const chapterManuscriptFunction = inngest.createFunction(
         finalReview,
       );
     });
+
+    if (finalReview === undefined || !finalReview.approved) {
+      await step.run('mark-review-blocked', async () => {
+        await persistProposal(workspaceId, bookId, {
+          ...proposalResult.created,
+          status: 'review-blocked',
+        });
+      });
+      return {
+        blocked: true,
+        reason: 'chapter-manuscript reviewer failed after the maximum rewrite rounds',
+        proposalId: proposalResult.created.proposalId,
+        workspaceId,
+        bookId,
+        targetId,
+      };
+    }
 
     await step.run('persist-canonical-draft', async () => {
       const draftPayload = createChapterManuscriptDraft({

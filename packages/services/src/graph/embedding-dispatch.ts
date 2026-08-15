@@ -76,7 +76,14 @@ export async function processPendingEmbeddings(input: {
     const documentIds = batch.map((document) => document.documentId);
     const embeddings = await input.provider.embed(batch.map((document) => document.text));
     validateEmbeddingBatch(documentIds, embeddings);
-    await Promise.all(embeddings.map((embedding, index) => writeEmbedding(documentIds[index] as string, embedding)));
+    await Promise.all(
+      embeddings.map((embedding, index) =>
+        writeEmbedding(documentIds[index] as string, embedding, {
+          workspaceId: input.workspaceId,
+          bookId: batch[index]?.bookId as string,
+        }),
+      ),
+    );
     processedDocumentIds.push(...documentIds);
   }
 
@@ -114,7 +121,13 @@ export async function dispatchEmbeddings(
 
   for (const doc of documents) {
     const existing = await prisma.searchDocument.findUnique({
-      where: { documentId: doc.id },
+      where: {
+        workspaceId_bookId_documentId: {
+          workspaceId: options.workspaceId,
+          bookId: options.bookId,
+          documentId: doc.id,
+        },
+      },
       select: { contentHash: true, embedded: true },
     });
 
@@ -135,7 +148,13 @@ export async function dispatchEmbeddings(
       created += 1;
     } else if (existing.contentHash !== doc.contentHash) {
       await prisma.searchDocument.update({
-        where: { documentId: doc.id },
+        where: {
+          workspaceId_bookId_documentId: {
+            workspaceId: options.workspaceId,
+            bookId: options.bookId,
+            documentId: doc.id,
+          },
+        },
         data: {
           text: doc.text,
           contentHash: doc.contentHash,
@@ -156,9 +175,9 @@ export async function dispatchEmbeddings(
  * Marks a document as embedded after the out-of-process job has written the
  * embedding vector directly to the database via raw SQL.
  */
-export async function markDocumentEmbedded(documentId: string): Promise<void> {
-  await prisma.searchDocument.update({
-    where: { documentId },
+export async function markDocumentEmbedded(documentId: string, scope?: EmbeddingDispatchOptions): Promise<void> {
+  await prisma.searchDocument.updateMany({
+    where: scope === undefined ? { documentId } : { documentId, ...scope },
     data: { embedded: true },
   });
 }
@@ -169,10 +188,10 @@ export async function markDocumentEmbedded(documentId: string): Promise<void> {
  */
 export async function listPendingEmbeddings(
   workspaceId: string,
-): Promise<readonly { documentId: string; text: string; kind: string }[]> {
+): Promise<readonly { documentId: string; bookId: string; text: string; kind: string }[]> {
   return prisma.searchDocument.findMany({
     where: { workspaceId, embedded: false },
-    select: { documentId: true, text: true, kind: true },
+    select: { documentId: true, bookId: true, text: true, kind: true },
     orderBy: { createdAt: 'asc' },
   });
 }

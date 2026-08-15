@@ -168,7 +168,9 @@ function continueSession(input: ApplyBootstrapCommandInput, emittedAt: string): 
   });
   input.store.upsertBootstrapSession({
     ...session,
-    status: session.path === 'import' ? 'import-review' : 'advancing',
+    status: session.path === 'import'
+      ? 'import-review'
+      : nextStage === 'project-brief' ? 'awaiting-approval' : 'advancing',
     currentStage: nextStage,
     currentRevisionId: revisionId,
     updatedAt: emittedAt,

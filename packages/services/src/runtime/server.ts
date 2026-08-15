@@ -19,7 +19,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 const workspaceRoot = process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd();
 const registryMarkdown = readFileSync(join(workspaceRoot, 'state/capabilities/registry.md'), 'utf8');
 const mcpConfig = JSON.parse(readFileSync(join(workspaceRoot, 'mcp.json'), 'utf8')) as { readonly servers?: Record<string, unknown> };
-validateCapabilityStartup(registryMarkdown, mcpConfig);
+validateCapabilityStartup(registryMarkdown, mcpConfig, workspaceRoot);
 const apiServer = createApiServer({ workspaceRoot });
 const inngestHandler = serveInngest({ client: inngest, functions: inngestFunctions });
 

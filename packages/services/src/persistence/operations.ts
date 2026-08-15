@@ -11,6 +11,7 @@
  */
 import { Prisma } from '@prisma/client';
 import type { Proposal, ReviewerResult, OverrideAudit, CapabilityRegistrationState } from '../domain';
+import { ReviewerResultSchema } from '../domain/schema';
 import type { ProposalArtifactType } from '../domain/values';
 import type { CanonicalDraft, CommandRecord, RunRecord } from '../runtime/store';
 import { validateCanonicalDraftForProposal } from '../runtime/canonical-draft';
@@ -370,6 +371,21 @@ export async function persistReviewerResultAndLinkProposal(
       data: { latestReviewResultId: reviewResultId },
     }),
   ]);
+}
+
+export async function findPersistedReviewerResult(reviewResultId: string): Promise<ReviewerResult | undefined> {
+  const row = await prisma.reviewerResult.findUnique({ where: { reviewResultId } });
+  if (row === null) {
+    return undefined;
+  }
+  return ReviewerResultSchema.parse({
+    approved: row.approved,
+    hardFailures: row.hardFailures,
+    dimensionScores: row.dimensionScores,
+    totalScore: row.totalScore,
+    rewriteDirectives: row.rewriteDirectives,
+    overrideEligible: row.overrideEligible,
+  });
 }
 
 // ---------------------------------------------------------------------------

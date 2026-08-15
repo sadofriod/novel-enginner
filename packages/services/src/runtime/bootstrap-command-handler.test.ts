@@ -109,7 +109,10 @@ describe('applyBootstrapCommand', () => {
       runId: 'run-bootstrap-continue-dialogue-002',
       payload: { sessionId: 'bootstrap-session-001' },
     });
-    expect(store.getBootstrapSession('bootstrap-session-001')?.currentStage).toBe('project-brief');
+    expect(store.getBootstrapSession('bootstrap-session-001')).toMatchObject({
+      currentStage: 'project-brief',
+      status: 'awaiting-approval',
+    });
     expect(continued.events.map((event) => event.type)).toEqual(['bootstrap.session.updated', 'bootstrap.stage.changed']);
   });
 

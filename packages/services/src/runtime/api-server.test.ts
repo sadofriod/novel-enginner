@@ -77,6 +77,19 @@ describe('command envelope validation', () => {
     expect(body.code).toBe('invalid-command-envelope');
   });
 
+  test('rejects an artifact intent without a targetId', async () => {
+    const { fetch } = createApiServer();
+    const response = await postJson(fetch, '/commands', {
+      ...BASE_ENVELOPE,
+      targetId: undefined,
+      idempotencyKey: 'cmd-missing-target-001',
+    });
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.status).toBe('rejected');
+    expect(body.code).toBe('invalid-command-envelope');
+  });
+
   test('rejects a system intent that sets artifactType', async () => {
     const { fetch } = createApiServer();
     const response = await postJson(fetch, '/commands', {

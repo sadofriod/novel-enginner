@@ -1,6 +1,6 @@
 /* eslint-disable complexity, max-lines-per-function */
 
-import type { CommandEnvelope, Proposal } from '../domain';
+import type { CommandEnvelope, Proposal, ReviewerResult } from '../domain';
 import type { WorkspaceValidity } from '../domain/values';
 import type { BootstrapRevision, BootstrapSession } from '../bootstrap/types';
 import { confirmImport } from '../bootstrap/import/confirm-import';
@@ -20,9 +20,11 @@ import {
   listPersistedRuns,
   persistCommand,
   persistProposal,
+  persistOverrideAudit as persistDatabaseOverrideAudit,
   persistRun,
   persistDerivedRebuildJob,
   findOverrideAudit,
+  findPersistedReviewerResult,
   updatePersistedRunStatus,
 } from '../persistence/operations';
 import type { CanonicalDraft, CommandRecord, RunRecord } from './store';
@@ -31,6 +33,7 @@ import { resolveArtifactWorkflow } from '../workflow/artifact-workflows';
 import { buildDerivedGraph } from '../graph/derive';
 import { handleHandEditedArtifact } from '../agent/synthetic-review';
 import { commitCanonicalFile } from '../workspace/canonical-commit';
+import { withCanonicalCommitLane } from '../workspace/canonical-commit-lane';
 import { resolveLayoutRuleForPath } from '../workspace/layout';
 import { createApprovedCanonicalDraft } from './canonical-draft';
 import { RunEventBus } from './event-bus';
@@ -80,7 +83,13 @@ export interface CreateApiServerOptions {
     bookId: string,
     proposal: Proposal,
   ) => Promise<void>;
+  readonly persistOverrideAudit?: (
+    overrideAuditId: string,
+    proposalId: string,
+    audit: import('../domain').OverrideAudit,
+  ) => Promise<void>;
   readonly loadCanonicalDraft?: (proposalId: string) => Promise<CanonicalDraft | undefined>;
+  readonly loadReviewerResult?: (reviewResultId: string) => Promise<ReviewerResult | undefined>;
   readonly onRebuildGraph?: (
     workspaceId: string,
     bookId: string,
@@ -689,11 +698,14 @@ async function applyPersistedProposalDecision({
   }
 
   const workspaceValidity = getWorkspaceValidity(envelope.workspaceId);
+  const reviewerContext = await loadReviewerResultForProposal(proposal, options, persistenceEnabled);
   const decision = applyProposalCommand({
     envelope,
     proposal,
     currentCanonicalVersion: snapshot.snapshotId,
     workspaceValidity,
+    ...reviewerContext,
+    requireReviewerResult: persistenceEnabled || options.loadReviewerResult !== undefined,
   });
   if (!decision.accepted) {
     eventBus.publish({
@@ -703,6 +715,23 @@ async function applyPersistedProposalDecision({
       data: { reason: decision.reason },
     });
     return;
+  }
+
+  if (envelope.intent === 'override-approve' && reviewerContext.reviewerResult !== undefined) {
+    const overrideAuditId = decision.proposal.overrideAuditId ?? `override-${proposal.proposalId}`;
+    const audit = {
+      overrideReason: 'Author requested override approval.',
+      overrideBy: envelope.requestedBy,
+      relatedRunId: runId,
+      failedChecks: reviewerContext.reviewerResult.hardFailures,
+      scoreSnapshot: reviewerContext.reviewerResult,
+      timestamp: new Date().toISOString(),
+    };
+    if (options.persistOverrideAudit !== undefined) {
+      await options.persistOverrideAudit(overrideAuditId, decision.proposal.proposalId, audit);
+    } else if (persistenceEnabled) {
+      await persistDatabaseOverrideAudit(overrideAuditId, decision.proposal.proposalId, audit);
+    }
   }
 
   if (options.persistProposalDecision !== undefined) {
@@ -720,6 +749,7 @@ async function applyPersistedProposalDecision({
     const commitFailure = await commitApprovedProposalDraft({
       store,
       workspaceRoot: options.workspaceRoot ?? process.cwd(),
+      bookId: envelope.bookId,
       proposal: decision.proposal,
       currentSnapshotId: snapshot.snapshotId,
       workspaceValidity,
@@ -743,6 +773,23 @@ async function applyPersistedProposalDecision({
     emittedAt: new Date().toISOString(),
     data: { proposalId: decision.proposal.proposalId, status: decision.proposal.status },
   });
+}
+
+async function loadReviewerResultForProposal(
+  proposal: Proposal,
+  options: CreateApiServerOptions,
+  persistenceEnabled: boolean,
+): Promise<{ readonly reviewerResult?: ReviewerResult }> {
+  if (proposal.latestReviewResultId === undefined) {
+    return {};
+  }
+  const loadReviewerResult = options.loadReviewerResult
+    ?? (persistenceEnabled ? findPersistedReviewerResult : undefined);
+  if (loadReviewerResult === undefined) {
+    return {};
+  }
+  const reviewerResult = await loadReviewerResult(proposal.latestReviewResultId);
+  return reviewerResult === undefined ? {} : { reviewerResult };
 }
 
 function resolveProposalDecisionEventType(
@@ -771,6 +818,7 @@ function resolveProposalDecisionEventType(
 async function commitApprovedProposalDraft(input: {
   readonly store: RuntimeStore;
   readonly workspaceRoot: string;
+  readonly bookId: string;
   readonly proposal: Proposal;
   readonly currentSnapshotId: string;
   readonly workspaceValidity: WorkspaceValidity;
@@ -789,14 +837,14 @@ async function commitApprovedProposalDraft(input: {
     return cause instanceof Error ? cause.message : String(cause);
   }
 
-  const result = await commitCanonicalFile({
+  const result = await withCanonicalCommitLane(input.bookId, () => commitCanonicalFile({
     workspaceRoot: input.workspaceRoot,
     relativePath: validatedDraft.relativePath,
     content: validatedDraft.content,
     workspaceValidity: input.workspaceValidity,
     proposalSnapshotId: input.proposal.basedOnCanonicalVersion,
     currentSnapshotId: input.currentSnapshotId,
-  });
+  }));
   if (result.committed) {
     input.store.recordInternalCanonicalCommit(validatedDraft.relativePath, validatedDraft.content);
   }

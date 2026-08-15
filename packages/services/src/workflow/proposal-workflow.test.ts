@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Proposal } from '../domain/schema';
+import type { ReviewerResult } from '../domain/schema';
 
 import {
   abortDriftedRuns,
@@ -24,6 +25,27 @@ function makeProposal(overrides: Partial<Proposal> = {}): Proposal {
     intent: 'propose',
     basedOnCanonicalVersion: 'snap-0001',
     parentRunId: 'run-chapter-0042-001',
+    ...overrides,
+  };
+}
+
+function makeReviewerResult(overrides: Partial<ReviewerResult> = {}): ReviewerResult {
+  return {
+    approved: true,
+    hardFailures: [],
+    dimensionScores: {
+      antiAiVoice: 80,
+      webFictionPacing: 80,
+      emotionCurve: 80,
+      characterConsistency: 80,
+      settingConsistency: 80,
+      clueCausality: 80,
+      readabilityLayout: 80,
+      languageTexture: 80,
+    },
+    totalScore: 80,
+    rewriteDirectives: [],
+    overrideEligible: true,
     ...overrides,
   };
 }
@@ -84,6 +106,41 @@ describe('proposal creation and supersede', () => {
 });
 
 describe('approval and override transitions', () => {
+  test('strict approval requires a ReviewerResult', () => {
+    const decision = decideApproval({
+      proposal: makeProposal(),
+      currentCanonicalVersion: 'snap-0001',
+      isOverride: false,
+      requireReviewerResult: true,
+    });
+
+    expect(decision).toMatchObject({ accepted: false, reason: 'review-required' });
+  });
+
+  test('strict normal approval rejects a failed review', () => {
+    const decision = decideApproval({
+      proposal: makeProposal(),
+      currentCanonicalVersion: 'snap-0001',
+      isOverride: false,
+      requireReviewerResult: true,
+      reviewerResult: makeReviewerResult({ approved: false }),
+    });
+
+    expect(decision).toMatchObject({ accepted: false, reason: 'review-rejected' });
+  });
+
+  test('strict override approval rejects a non-overridable review', () => {
+    const decision = decideApproval({
+      proposal: makeProposal(),
+      currentCanonicalVersion: 'snap-0001',
+      isOverride: true,
+      requireReviewerResult: true,
+      reviewerResult: makeReviewerResult({ overrideEligible: false }),
+    });
+
+    expect(decision).toMatchObject({ accepted: false, reason: 'override-not-eligible' });
+  });
+
   test('approve succeeds when the proposal snapshot matches the current canonical version', () => {
     const proposal = makeProposal();
     const decision = decideApproval({

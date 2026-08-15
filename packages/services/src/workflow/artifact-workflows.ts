@@ -1,4 +1,4 @@
-import type { Proposal, StableId } from '../domain/schema';
+import type { Proposal, ReviewerResult, StableId } from '../domain/schema';
 import type { ProposalArtifactType, WorkspaceValidity } from '../domain/values';
 
 import {
@@ -61,6 +61,8 @@ export interface ArtifactWorkflow {
     currentCanonicalVersion: StableId,
     isOverride: boolean,
     overrideAuditId?: StableId,
+    reviewerResult?: ReviewerResult,
+    requireReviewerResult?: boolean,
   ): ApprovalDecisionResult;
   /** `reject` step. */
   reject(proposal: Proposal): Proposal;
@@ -76,11 +78,13 @@ function buildArtifactWorkflow(artifactType: ProposalArtifactType): ArtifactWork
   return {
     artifactType,
     propose: (input) => createArtifactProposal(artifactType, input),
-    approve: (proposal, currentCanonicalVersion, isOverride, overrideAuditId) =>
+    approve: (proposal, currentCanonicalVersion, isOverride, overrideAuditId, reviewerResult, requireReviewerResult) =>
       decideApproval({
         proposal,
         currentCanonicalVersion,
         isOverride,
+        ...(reviewerResult !== undefined ? { reviewerResult } : {}),
+        ...(requireReviewerResult === true ? { requireReviewerResult: true } : {}),
         ...(overrideAuditId !== undefined ? { overrideAuditId } : {}),
       }),
     reject: rejectProposal,

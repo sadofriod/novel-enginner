@@ -283,7 +283,7 @@ model DerivedRebuildJob {
 
 model SearchDocument {
   id          String   @id @default(uuid())
-  documentId  String   @unique
+  documentId  String
   workspaceId String
   bookId      String
   nodeId      String
@@ -297,6 +297,7 @@ model SearchDocument {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@unique([workspaceId, bookId, documentId])
   @@index([workspaceId, bookId])
   @@index([nodeId])
   @@index([contentHash])

@@ -36,6 +36,11 @@ export interface VectorSearchOptions {
   readonly kinds?: readonly string[];
 }
 
+export interface VectorDocumentScope {
+  readonly workspaceId: string;
+  readonly bookId: string;
+}
+
 /**
  * Writes an embedding vector for a single document. Uses raw SQL because Prisma
  * does not natively support the pgvector `vector` type.
@@ -43,18 +48,34 @@ export interface VectorSearchOptions {
  * @param documentId  The `documentId` column of the search_documents row.
  * @param embedding   Float32 array of length `EMBEDDING_DIMENSION` (1536).
  */
-export async function writeEmbedding(documentId: string, embedding: readonly number[]): Promise<void> {
+export async function writeEmbedding(
+  documentId: string,
+  embedding: readonly number[],
+  scope?: VectorDocumentScope,
+): Promise<void> {
   if (embedding.length !== EMBEDDING_DIMENSION) {
     throw new Error(
       `Expected embedding of length ${EMBEDDING_DIMENSION}, got ${embedding.length} for documentId "${documentId}".`,
     );
   }
   const vectorLiteral = `[${embedding.join(',')}]`;
+  if (scope === undefined) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE search_documents
+       SET embedding = $1::vector, embedded = true, "updatedAt" = now()
+       WHERE "documentId" = $2`,
+      vectorLiteral,
+      documentId,
+    );
+    return;
+  }
   await prisma.$executeRawUnsafe(
     `UPDATE search_documents
      SET embedding = $1::vector, embedded = true, "updatedAt" = now()
-     WHERE "documentId" = $2`,
+     WHERE "workspaceId" = $2 AND "bookId" = $3 AND "documentId" = $4`,
     vectorLiteral,
+    scope.workspaceId,
+    scope.bookId,
     documentId,
   );
 }
@@ -76,12 +97,12 @@ function buildVectorSearchFilters(options: VectorSearchOptions): { readonly wher
 
   if (options.bookId !== undefined) {
     params.push(options.bookId);
-    clauses.push(`"bookId" = $${params.length}`);
+    clauses.push(`"bookId" = $${params.length + 1}`);
   }
 
   if (options.kinds !== undefined && options.kinds.length > 0) {
     params.push(options.kinds);
-    clauses.push(`kind = ANY($${params.length}::text[])`);
+    clauses.push(`kind = ANY($${params.length + 1}::text[])`);
   }
 
   return {

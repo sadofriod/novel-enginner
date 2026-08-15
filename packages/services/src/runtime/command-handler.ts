@@ -105,6 +105,9 @@ function validateArtifactEnvelope(envelope: CommandEnvelope): CommandEnvelopeVal
   if (envelope.artifactType === undefined) {
     return invalidEnvelope(`Intent "${envelope.intent}" requires "artifactType".`);
   }
+  if (envelope.targetId === undefined) {
+    return invalidEnvelope(`Intent "${envelope.intent}" requires "targetId".`);
+  }
   return undefined;
 }
 

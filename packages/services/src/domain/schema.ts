@@ -75,7 +75,7 @@ export const BookSchema = z
     id: StableIdSchema,
     title: NonEmptyStringSchema,
     status: z.enum(BOOK_STATUS_VALUES),
-    activeVolumeId: StableIdSchema,
+    activeVolumeId: StableIdSchema.optional(),
     latestCanonicalVersion: StableIdSchema,
     globalPromises: z.array(StableIdSchema).readonly(),
     globalConstraints: z.array(StableIdSchema).readonly(),

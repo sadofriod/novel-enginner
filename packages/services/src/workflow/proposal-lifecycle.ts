@@ -1,4 +1,6 @@
-import type { Proposal, StableId } from '../domain/schema';
+/* eslint-disable complexity */
+
+import type { Proposal, ReviewerResult, StableId } from '../domain/schema';
 import type { ProposalArtifactType, ProposalStatus, WorkspaceValidity } from '../domain/values';
 
 /**
@@ -90,7 +92,7 @@ export function createProposal({ proposal, registry }: CreateProposalInput): Cre
 
 export interface ApprovabilityRejection {
   readonly eligible: false;
-  readonly reason: 'snapshot-drift' | 'not-pending-approval';
+  readonly reason: 'snapshot-drift' | 'not-pending-approval' | 'review-required' | 'review-rejected' | 'override-not-eligible';
   readonly message: string;
 }
 
@@ -108,6 +110,9 @@ export type ApprovabilityResult = ApprovabilityRejection | ApprovabilityApproval
 export function evaluateApprovability(
   proposal: Proposal,
   currentCanonicalVersion: StableId,
+  reviewerResult?: ReviewerResult,
+  isOverride = false,
+  requireReviewerResult = false,
 ): ApprovabilityResult {
   if (proposal.status !== 'pending-approval' && proposal.status !== 'pending-review') {
     return {
@@ -128,6 +133,30 @@ export function evaluateApprovability(
     };
   }
 
+  if (requireReviewerResult && reviewerResult === undefined) {
+    return {
+      eligible: false,
+      reason: 'review-required',
+      message: `Proposal "${proposal.proposalId}" cannot be approved before a ReviewerResult is available.`,
+    };
+  }
+
+  if (reviewerResult !== undefined && isOverride && !reviewerResult.overrideEligible) {
+    return {
+      eligible: false,
+      reason: 'override-not-eligible',
+      message: `Proposal "${proposal.proposalId}" has a ReviewerResult that is not eligible for override approval.`,
+    };
+  }
+
+  if (reviewerResult !== undefined && !reviewerResult.approved && !isOverride) {
+    return {
+      eligible: false,
+      reason: 'review-rejected',
+      message: `Proposal "${proposal.proposalId}" cannot be normally approved because its latest review was rejected.`,
+    };
+  }
+
   return { eligible: true };
 }
 
@@ -136,6 +165,8 @@ export interface DecideApprovalInput {
   readonly currentCanonicalVersion: StableId;
   /** `true` for `override-approve`, `false` for a normal `approve`. */
   readonly isOverride: boolean;
+  readonly reviewerResult?: ReviewerResult;
+  readonly requireReviewerResult?: boolean;
   readonly overrideAuditId?: StableId;
 }
 
@@ -158,7 +189,13 @@ export type ApprovalDecisionResult = ApprovalDecisionAccepted | ApprovalDecision
  * (docs/architecture/modules/07-api-events-and-runtime.md §7.9).
  */
 export function decideApproval(input: DecideApprovalInput): ApprovalDecisionResult {
-  const eligibility = evaluateApprovability(input.proposal, input.currentCanonicalVersion);
+  const eligibility = evaluateApprovability(
+    input.proposal,
+    input.currentCanonicalVersion,
+    input.reviewerResult,
+    input.isOverride,
+    input.requireReviewerResult,
+  );
   if (!eligibility.eligible) {
     return { accepted: false, reason: eligibility.reason, message: eligibility.message };
   }

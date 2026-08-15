@@ -14,7 +14,7 @@
     "test": "NODE_ENV=test bun test packages",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint packages",
+    "lint": "eslint .",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:migrate": "prisma migrate deploy",

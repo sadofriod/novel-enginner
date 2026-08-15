@@ -1,6 +1,8 @@
-import type { ProposalArtifactType, SystemTaskType } from '../domain/values';
+import type { CommandIntent, ProposalArtifactType, SystemTaskType } from '../domain/values';
+import type { Proposal } from '../domain';
 import type { StableId } from '../domain/schema';
 import { WorkspaceSyncSession } from '../workspace/session';
+import type { RunSnapshotRef } from '../workflow/run-drift';
 import type { ArtifactDetailState } from './artifact-detail';
 import type { DerivedGraph } from '../graph/types';
 import type { BootstrapEvidence, BootstrapRevision, BootstrapSession } from '../bootstrap/types';
@@ -30,6 +32,8 @@ export interface RunRecord {
   readonly artifactType?: ProposalArtifactType;
   readonly systemTaskType?: SystemTaskType;
   readonly targetId?: StableId;
+  readonly intent?: CommandIntent;
+  readonly basedOnCanonicalVersion?: StableId;
   status: string;
   nextExpectedState: string;
   readonly createdAt: string;
@@ -61,6 +65,7 @@ export class RuntimeStore {
   private readonly commandIdByIdempotencyKey = new Map<string, string>();
   private readonly runsById = new Map<string, RunRecord>();
   private readonly artifactsByKey = new Map<string, ArtifactSummary>();
+  private readonly proposalsByKey = new Map<string, Proposal>();
   private readonly lastKnownSnapshotByWorkspaceId = new Map<
     string,
     import('../workspace/sync-engine').WorkspaceSnapshot
@@ -115,6 +120,14 @@ export class RuntimeStore {
 
   deleteArtifact(artifactType: string, targetId: string): void {
     this.artifactsByKey.delete(artifactKey(artifactType, targetId));
+  }
+
+  saveProposal(proposal: Proposal): void {
+    this.proposalsByKey.set(artifactKey(proposal.artifactType, proposal.targetId), proposal);
+  }
+
+  getActiveProposal(artifactType: ProposalArtifactType, targetId: string): Proposal | undefined {
+    return this.proposalsByKey.get(artifactKey(artifactType, targetId));
   }
 
   saveCanonicalDraft(draft: CanonicalDraft): void {
@@ -177,6 +190,21 @@ export class RuntimeStore {
   /** Lists every known run record, newest first, for the Web console's run trace view. */
   listRuns(): readonly RunRecord[] {
     return Array.from(this.runsById.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  listActiveWriteRuns(): readonly RunSnapshotRef[] {
+    const writeIntents: ReadonlySet<CommandIntent> = new Set(['propose', 'regenerate', 'approve', 'override-approve']);
+    return this.listRuns().flatMap((run): readonly RunSnapshotRef[] => {
+      if (run.status !== 'running' || run.intent === undefined || run.basedOnCanonicalVersion === undefined || !writeIntents.has(run.intent)) {
+        return [];
+      }
+      return [{
+        runId: run.runId,
+        status: 'running',
+        basedOnCanonicalVersion: run.basedOnCanonicalVersion,
+        isWriteRelated: true,
+      }];
+    });
   }
 
   /** Returns the last workspace snapshot produced by a `re-sync-state` call. */

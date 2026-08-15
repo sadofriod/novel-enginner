@@ -4,7 +4,7 @@ const TRANSITIONS: Readonly<Record<BootstrapSessionStatus, readonly BootstrapSes
   drafting: ['awaiting-approval'],
   'awaiting-approval': ['advancing', 'import-review', 'completed', 'abandoned', 'failed'],
   advancing: ['ready-to-write', 'failed'],
-  'import-review': ['ready-to-write', 'failed'],
+  'import-review': ['ready-to-write', 'abandoned', 'failed'],
   'ready-to-write': ['completed', 'abandoned', 'failed'],
   completed: [],
   abandoned: [],

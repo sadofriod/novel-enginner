@@ -98,13 +98,15 @@ export function ArtifactDetail({ artifact, onAction, pending = false, actionForm
 
   const actionButtons = (actions: readonly ApprovalAction[], isForm: boolean) =>
     actions.map((action) => {
-      const style = { ...(BTN_STYLES[action] ?? BTN_BASE), opacity: pending ? 0.5 : 1 };
+      const canConfirmWaitingSync = artifact.proposalStatus === 'waiting-sync' && action === 'approve';
+      const disabled = pending && !canConfirmWaitingSync;
+      const style = { ...(BTN_STYLES[action] ?? BTN_BASE), opacity: disabled ? 0.5 : 1 };
       return isForm ? (
-        <button key={action} type="submit" name="intent" value={action} aria-label={action} disabled={pending} style={style}>
+        <button key={action} type="submit" name="intent" value={action} aria-label={action} disabled={disabled} style={style}>
           {ACTION_LABELS[action]}
         </button>
       ) : (
-        <button key={action} type="button" data-action={action} aria-label={action} disabled={pending} onClick={() => onAction(action, note)} style={style}>
+        <button key={action} type="button" data-action={action} aria-label={action} disabled={disabled} onClick={() => onAction(action, note)} style={style}>
           {ACTION_LABELS[action]}
         </button>
       );

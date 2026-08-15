@@ -129,6 +129,14 @@ export const volumeOutlineWorkflow: ArtifactWorkflow = buildArtifactWorkflow('vo
  */
 export const worldChangeWorkflow: ArtifactWorkflow = buildArtifactWorkflow('world-change');
 
+export const characterUpdateWorkflow: ArtifactWorkflow = buildArtifactWorkflow('character-update');
+export const factionUpdateWorkflow: ArtifactWorkflow = buildArtifactWorkflow('faction-update');
+export const locationUpdateWorkflow: ArtifactWorkflow = buildArtifactWorkflow('location-update');
+export const techRuleUpdateWorkflow: ArtifactWorkflow = buildArtifactWorkflow('tech-rule-update');
+export const factUpdateWorkflow: ArtifactWorkflow = buildArtifactWorkflow('fact-update');
+export const relationshipUpdateWorkflow: ArtifactWorkflow = buildArtifactWorkflow('relationship-update');
+export const resourceUpdateWorkflow: ArtifactWorkflow = buildArtifactWorkflow('resource-update');
+
 const ARTIFACT_WORKFLOWS: ReadonlyMap<ProposalArtifactType, ArtifactWorkflow> = new Map([
   ['project-brief', projectBriefWorkflow],
   ['world-foundation', worldFoundationWorkflow],
@@ -137,6 +145,13 @@ const ARTIFACT_WORKFLOWS: ReadonlyMap<ProposalArtifactType, ArtifactWorkflow> = 
   ['chapter-manuscript', chapterManuscriptWorkflow],
   ['volume-outline', volumeOutlineWorkflow],
   ['world-change', worldChangeWorkflow],
+  ['character-update', characterUpdateWorkflow],
+  ['faction-update', factionUpdateWorkflow],
+  ['location-update', locationUpdateWorkflow],
+  ['tech-rule-update', techRuleUpdateWorkflow],
+  ['fact-update', factUpdateWorkflow],
+  ['relationship-update', relationshipUpdateWorkflow],
+  ['resource-update', resourceUpdateWorkflow],
 ]);
 
 /** Resolves the workflow skeleton registered for a given artifact type, if any. */

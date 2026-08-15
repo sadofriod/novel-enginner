@@ -30,7 +30,7 @@ export function BlockedStateBanner({ artifact }: BlockedStateBannerProps) {
       color: '#f57f17',
       border: '#ffe082',
       background: '#fff8e1',
-      message: '已批准，正在等待工作区重新同步（waiting-sync）。落盘完成后会自动刷新。',
+      message: '已批准，等待工作区重新同步（waiting-sync）。同步恢复后请明确再次批准以确认写入 canonical。',
     },
   } as const;
 

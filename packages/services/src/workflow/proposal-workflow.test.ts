@@ -241,6 +241,13 @@ describe('artifact workflow skeletons', () => {
     expect(resolveArtifactWorkflow('chapter-manuscript')?.artifactType).toBe('chapter-manuscript');
     expect(resolveArtifactWorkflow('volume-outline')?.artifactType).toBe('volume-outline');
     expect(resolveArtifactWorkflow('world-change')?.artifactType).toBe('world-change');
+    expect(resolveArtifactWorkflow('character-update')?.artifactType).toBe('character-update');
+    expect(resolveArtifactWorkflow('faction-update')?.artifactType).toBe('faction-update');
+    expect(resolveArtifactWorkflow('location-update')?.artifactType).toBe('location-update');
+    expect(resolveArtifactWorkflow('tech-rule-update')?.artifactType).toBe('tech-rule-update');
+    expect(resolveArtifactWorkflow('fact-update')?.artifactType).toBe('fact-update');
+    expect(resolveArtifactWorkflow('relationship-update')?.artifactType).toBe('relationship-update');
+    expect(resolveArtifactWorkflow('resource-update')?.artifactType).toBe('resource-update');
   });
 
   test('chapterOutlineWorkflow.propose rejects a proposal with a mismatched artifactType', () => {

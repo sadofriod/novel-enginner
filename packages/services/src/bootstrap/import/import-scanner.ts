@@ -34,20 +34,48 @@ function detectReference(name: string): number {
   return name.includes('reference') || name.includes('resources') ? 0.75 : 0;
 }
 
+function numberFromName(name: string): number | undefined {
+  const match = name.match(/\d+/);
+  return match === null ? undefined : Number.parseInt(match[0], 10);
+}
+
+function paddedTarget(prefix: string, width: number, number: number): string {
+  return `${prefix}${number.toString().padStart(width, '0')}`;
+}
+
+function volumeTarget(name: string): string | undefined {
+  const number = numberFromName(name);
+  return number === undefined ? undefined : `state/volumes/${paddedTarget('volume-', 3, number)}.md`;
+}
+
+function chapterTarget(name: string): string | undefined {
+  const number = numberFromName(name);
+  return number === undefined ? undefined : `state/chapters/${paddedTarget('chapter-', 4, number)}-outline.md`;
+}
+
 export function recognizeEntity(filePath: string): BootstrapImportFileEntry | undefined {
   const name = toBasename(filePath);
   const detectors = [
     { detector: detectProjectBrief, kind: 'project-brief' as const, target: 'state/book/project-brief.md' },
     { detector: detectWorldFoundation, kind: 'world-foundation' as const, target: 'state/world/world-foundation.md' },
     { detector: detectStoryBlueprint, kind: 'story-blueprint' as const, target: 'state/book/story-blueprint.md' },
-    { detector: detectVolume, kind: 'volume' as const, target: 'state/volumes/volume-1.md' },
-    { detector: detectChapter, kind: 'chapter' as const, target: 'state/chapters/chapter-1.md' },
+    { detector: detectVolume, kind: 'volume' as const, target: volumeTarget(name) },
+    { detector: detectChapter, kind: 'chapter' as const, target: chapterTarget(name) },
     { detector: detectReference, kind: 'reference' as const, target: 'references/imported/reference.md' },
   ];
 
   for (const candidate of detectors) {
     const confidence = candidate.detector(name);
     if (confidence > 0) {
+      if (candidate.target === undefined) {
+        return {
+          sourcePath: filePath,
+          detectedKind: 'reference',
+          canonicalTarget: 'references/imported/unmapped.md',
+          confidence: 0.2,
+          notes: '无法从文件名稳定提取编号，需人工确认后才能映射为 canonical 工件。',
+        };
+      }
       return {
         sourcePath: filePath,
         detectedKind: candidate.kind,

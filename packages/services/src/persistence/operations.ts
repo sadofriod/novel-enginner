@@ -189,6 +189,25 @@ export async function findPersistedRun(runId: string): Promise<RunRecord | undef
   };
 }
 
+export async function listPersistedRuns(): Promise<readonly RunRecord[]> {
+  const rows = await prisma.run.findMany({ orderBy: { createdAt: 'desc' } });
+  return Promise.all(rows.map(async (row) => {
+    const command = await prisma.command.findUnique({ where: { runId: row.runId } });
+    return {
+      runId: row.runId,
+      commandId: command?.commandId ?? '',
+      workspaceId: row.workspaceId,
+      bookId: row.bookId,
+      ...(row.artifactType === null ? {} : { artifactType: row.artifactType as NonNullable<RunRecord['artifactType']> }),
+      ...(row.targetId === null ? {} : { targetId: row.targetId }),
+      status: row.status,
+      nextExpectedState: row.nextExpectedState ?? 'unknown',
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }));
+}
+
 export async function findPersistedCommandByIdempotencyKey(
   workspaceId: string,
   idempotencyKey: string,
@@ -325,6 +344,32 @@ export async function persistReviewerResult(
       overrideEligible: data.overrideEligible,
     },
   });
+}
+
+export async function persistReviewerResultAndLinkProposal(
+  reviewResultId: string,
+  proposalId: string,
+  result: ReviewerResult,
+): Promise<void> {
+  const data = toReviewerResultCreateInput(reviewResultId, proposalId, result);
+  await prisma.$transaction([
+    prisma.reviewerResult.upsert({
+      where: { reviewResultId },
+      create: data,
+      update: {
+        approved: data.approved,
+        hardFailures: data.hardFailures,
+        dimensionScores: data.dimensionScores,
+        totalScore: data.totalScore,
+        rewriteDirectives: data.rewriteDirectives,
+        overrideEligible: data.overrideEligible,
+      },
+    }),
+    prisma.proposal.update({
+      where: { proposalId },
+      data: { latestReviewResultId: reviewResultId },
+    }),
+  ]);
 }
 
 // ---------------------------------------------------------------------------

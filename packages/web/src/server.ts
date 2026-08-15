@@ -1,3 +1,5 @@
+/* eslint-disable complexity */
+
 import { renderControlConsolePage } from './app/pages/ControlConsolePage';
 import type { ArtifactSummary, RunRecord } from '@novel-enginner/services/runtime/store';
 
@@ -18,6 +20,21 @@ async function renderApp(request: Request): Promise<Response> {
   const data = await loadConsoleData();
   const page = resolvePageContext(requestUrl, data);
   return new Response(renderControlConsolePage({ ...data, ...page }), {
+    headers: { 'content-type': 'text/html; charset=utf-8' },
+  });
+}
+
+function renderSpaShell(): Response {
+  return new Response(`<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Novel Enginner</title>
+    <script src="/assets/client.js" defer></script>
+  </head>
+  <body><div id="web-app-root"></div></body>
+</html>`, {
     headers: { 'content-type': 'text/html; charset=utf-8' },
   });
 }
@@ -91,8 +108,11 @@ async function fetchWeb(request: Request): Promise<Response> {
       headers: { 'content-type': 'text/javascript; charset=utf-8' },
     });
   }
-  if (url.pathname === '/' || url.pathname === '/app') {
+  if (url.pathname === '/app') {
     return renderApp(request);
+  }
+  if (url.pathname === '/' || url.pathname.startsWith('/bootstrap/')) {
+    return renderSpaShell();
   }
   if (url.pathname.startsWith('/api/')) {
     return proxyToService(request, url.pathname);

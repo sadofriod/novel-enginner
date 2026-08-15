@@ -69,7 +69,7 @@ export interface GraphEdge {
  */
 export interface SearchDocument {
   readonly id: string;
-  readonly kind: GraphNodeKind;
+  readonly kind: GraphNodeKind | 'PlanningAnchor';
   readonly nodeId: string;
   readonly sourceRef: string;
   readonly text: string;

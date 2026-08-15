@@ -20,6 +20,12 @@ const CANONICAL_KIND_BY_ARTIFACT_TYPE: Readonly<Partial<Record<Proposal['artifac
   'resource-update': 'resource',
 };
 
+const BOOTSTRAP_PATH_BY_ARTIFACT_TYPE: Readonly<Partial<Record<Proposal['artifactType'], string>>> = {
+  'project-brief': 'state/book/project-brief.md',
+  'world-foundation': 'state/world/world-foundation.md',
+  'story-blueprint': 'state/book/story-blueprint.md',
+};
+
 export class CanonicalDraftValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -34,6 +40,18 @@ export function createValidatedCanonicalDraft(draft: CanonicalDraft): CanonicalD
     throw new CanonicalDraftValidationError(cause instanceof Error ? cause.message : String(cause));
   }
   return draft;
+}
+
+export function createBootstrapArtifactDraft(input: {
+  readonly proposalId: string;
+  readonly artifactType: 'project-brief' | 'world-foundation' | 'story-blueprint';
+  readonly content: string;
+}): CanonicalDraft {
+  const relativePath = BOOTSTRAP_PATH_BY_ARTIFACT_TYPE[input.artifactType];
+  if (relativePath === undefined) {
+    throw new CanonicalDraftValidationError(`Bootstrap artifact type "${input.artifactType}" has no canonical path.`);
+  }
+  return createValidatedCanonicalDraft({ proposalId: input.proposalId, relativePath, content: input.content });
 }
 
 export function validateCanonicalDraftForProposal(

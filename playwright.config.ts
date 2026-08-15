@@ -15,7 +15,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `SERVICE_PORT=${apiPort} NOVEL_E2E_FIXTURE=1 pnpm dev:services`,
+      command: `NODE_ENV=test SERVICE_PORT=${apiPort} NOVEL_E2E_FIXTURE=1 pnpm dev:services`,
       url: `http://127.0.0.1:${apiPort}/artifacts`,
       reuseExistingServer: false,
       timeout: 30_000,

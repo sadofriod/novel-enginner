@@ -185,10 +185,15 @@ export function ControlConsole({
         setRemoteRuns(nextRuns);
       });
     };
-    stream.addEventListener('run.step.completed', refresh);
-    stream.addEventListener('run.completed', refresh);
-    stream.addEventListener('run.aborted', refresh);
-    stream.addEventListener('workspace.invalid', refresh);
+    for (const eventType of [
+      'run.step.completed', 'run.step.failed', 'run.completed', 'run.aborted',
+      'workspace.invalid', 'workspace.valid', 'derived.ready', 'derived.failed',
+      'artifact.proposed', 'artifact.approved', 'artifact.override-approved',
+      'artifact.rejected', 'artifact.exported', 'artifact.canonical-committed',
+      'artifact.commit-blocked', 'artifact.review-stale',
+    ]) {
+      stream.addEventListener(eventType, refresh);
+    }
     return () => {
       stream.close();
     };

@@ -59,16 +59,22 @@ function resolveCommitRetry(
     readonly workspaceValidity: WorkspaceValidity;
   },
 ): ProposalCommandLifecycleResult | undefined {
-  const matchesApprovedIntent = envelope.intent === 'approve' && proposal.status === 'approved';
-  const matchesOverrideIntent = envelope.intent === 'override-approve' && proposal.status === 'override-approved';
+  const recoveredProposal = workflow.recoverFromBlocked(proposal, input.workspaceValidity);
+  const isBlocked = proposal.status === 'commit-blocked' || proposal.status === 'waiting-sync';
+  if (isBlocked && recoveredProposal.status === proposal.status) {
+    return { accepted: true, proposal: recoveredProposal, canCommit: false };
+  }
+
+  const matchesApprovedIntent = envelope.intent === 'approve' && recoveredProposal.status === 'approved';
+  const matchesOverrideIntent = envelope.intent === 'override-approve' && recoveredProposal.status === 'override-approved';
   if (!matchesApprovedIntent && !matchesOverrideIntent) {
     return undefined;
   }
-  if (proposal.basedOnCanonicalVersion !== input.currentCanonicalVersion) {
+  if (recoveredProposal.basedOnCanonicalVersion !== input.currentCanonicalVersion) {
     return { accepted: false, reason: 'proposal snapshot is stale; regenerate before committing' };
   }
 
-  const commit = workflow.commit(proposal, input.workspaceValidity);
+  const commit = workflow.commit(recoveredProposal, input.workspaceValidity);
   return { accepted: true, proposal: commit.proposal, canCommit: commit.canCommit };
 }
 

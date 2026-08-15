@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { prisma } from './client';
 import {
   findPersistedRun,
+  listPersistedRuns,
   listPersistedRunSteps,
   persistCommand,
   persistRun,
@@ -50,6 +51,18 @@ afterEach(async () => {
 });
 
 describe('runtime persistence operations', () => {
+  test('lists persisted runs newest first for runtime recovery', async () => {
+    if (!databaseAvailable) {
+      return;
+    }
+    createdRunIds.push(runId);
+    await persistCommand(workspaceId, bookId, command);
+    await persistRun(run, 'propose', 'author-local', command.idempotencyKey);
+
+    const runs = await listPersistedRuns();
+    expect(runs.map((item) => item.runId)).toContain(runId);
+  });
+
   test('round-trips a run, command link, status, and checkpoint step', async () => {
     if (!databaseAvailable) {
       return;

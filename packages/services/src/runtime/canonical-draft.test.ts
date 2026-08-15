@@ -7,6 +7,7 @@ import {
   createVolumeOutlineDraft,
   createValidatedCanonicalDraft,
   validateCanonicalDraftForProposal,
+    createBootstrapArtifactDraft,
 } from './canonical-draft';
 
 const VALID_CHARACTER_MARKDOWN = `---
@@ -37,6 +38,32 @@ describe('canonical draft validation', () => {
       content: VALID_CHARACTER_MARKDOWN,
     });
   });
+
+    test('creates a validated project brief draft at its fixed canonical path', () => {
+      const draft = createBootstrapArtifactDraft({
+        proposalId: 'proposal-brief-001',
+        artifactType: 'project-brief',
+        content: `---
+  id: project-brief-001
+  bookId: book-001
+  title: Test
+  genres: [scifi]
+  targetAudience: readers
+  marketScope: local
+  readerPromise: tension
+  corePremise: premise
+  openingHook: hook
+  contentBoundaries: []
+  format: serial
+  sourceResearchEvidenceIds: []
+  assumptionIds: []
+  status: draft
+  ---
+  `,
+      });
+
+      expect(draft.relativePath).toBe('state/book/project-brief.md');
+    });
 
   test('rejects a draft whose path or frontmatter does not satisfy the canonical contract', () => {
     expect(() => createValidatedCanonicalDraft({

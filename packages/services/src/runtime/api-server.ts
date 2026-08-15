@@ -2,17 +2,22 @@
 
 import type { CommandEnvelope, Proposal } from '../domain';
 import type { WorkspaceValidity } from '../domain/values';
+import type { BootstrapRevision, BootstrapSession } from '../bootstrap/types';
+import { confirmImport } from '../bootstrap/import/confirm-import';
+import type { ImportMapping } from '../bootstrap/import/import-mapper';
 
 import { abortDriftedRuns, type RunSnapshotRef } from '../workflow/run-drift';
 import { type SyntheticCommit } from '../workspace/session';
 import { type WorkspaceFileInput } from '../workspace/sync-engine';
 import { handleCommand, validateCommandEnvelope, type CommandResult } from './command-handler';
+import { applyBootstrapCommand } from './bootstrap-command-handler';
 import {
   findPersistedCommandByIdempotencyKey,
   findPersistedCanonicalDraft,
   listActiveProposalsForBook,
   findActiveProposalForTarget,
   findPersistedRun,
+  listPersistedRuns,
   persistCommand,
   persistProposal,
   persistRun,
@@ -48,6 +53,7 @@ const PROPOSAL_ARTIFACT_TYPE_BY_CANONICAL_KIND: Readonly<Record<string, string>>
 };
 
 const TERMINAL_RUN_EVENT_TYPES: ReadonlySet<string> = new Set(['run.completed', 'run.aborted', 'external.failure']);
+const INLINE_EDIT_CHAR_LIMIT = 200;
 
 export interface CreateApiServerOptions {
   readonly store?: RuntimeStore;
@@ -94,6 +100,10 @@ export interface CreateApiServerOptions {
     readonly editedText?: string;
     readonly proposalId?: string;
   }) => Promise<void>;
+  readonly persistBootstrapState?: (
+    session: BootstrapSession,
+    revision?: BootstrapRevision,
+  ) => Promise<void>;
   readonly reSyncStateOptions?: {
     readonly getActiveRuns: () => readonly RunSnapshotRef[];
     readonly onRunsAborted?: (runIds: readonly string[]) => void;
@@ -238,6 +248,77 @@ function readSyncBody(request: Request): Promise<Record<string, unknown>> {
   }).catch(() => ({}));
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' ? value as Record<string, unknown> : {};
+}
+
+async function applyConfirmedImport(
+  store: RuntimeStore,
+  runId: string,
+  payload: Record<string, unknown>,
+): Promise<readonly import('./event-bus').RunEvent[]> {
+  const sessionId = typeof payload['sessionId'] === 'string' ? payload['sessionId'] : undefined;
+  const sourceRoot = typeof payload['sourceRoot'] === 'string' ? payload['sourceRoot'] : undefined;
+  const targetRoot = typeof payload['targetRoot'] === 'string' ? payload['targetRoot'] : undefined;
+  if (sessionId === undefined || sourceRoot === undefined || targetRoot === undefined || !('mapping' in payload)) {
+    throw new Error('confirm-import requires sessionId, sourceRoot, targetRoot, and mapping.');
+  }
+  const session = store.getBootstrapSession(sessionId);
+  if (session === undefined || session.path !== 'import') {
+    throw new Error(`Import Bootstrap session "${sessionId}" was not found.`);
+  }
+  const result = await confirmImport({ sourceRoot, targetRoot, mapping: payload['mapping'] as ImportMapping });
+  const emittedAt = new Date().toISOString();
+  const revisionId = `bootstrap-revision-${runId}`;
+  store.upsertBootstrapRevision({
+    id: revisionId,
+    sessionId,
+    stage: 'import-health-report',
+    createdAt: emittedAt,
+    summary: 'Import confirmation completed and health report generated.',
+    draft: result.healthReport as unknown as Record<string, unknown>,
+  });
+  store.upsertBootstrapSession({
+    ...session,
+    status: 'import-review',
+    currentStage: 'import-health-report',
+    currentRevisionId: revisionId,
+    updatedAt: emittedAt,
+  });
+  return [
+    { type: 'bootstrap.session.updated', runId, emittedAt, data: { sessionId, revisionId } },
+    { type: 'bootstrap.stage.changed', runId, emittedAt, data: { sessionId, stage: 'import-health-report' } },
+  ];
+}
+
+async function persistBootstrapCommandState(
+  store: RuntimeStore,
+  events: readonly import('./event-bus').RunEvent[],
+  persistBootstrapState: CreateApiServerOptions['persistBootstrapState'],
+): Promise<void> {
+  const sessionId = events.find((event) => typeof event.data?.['sessionId'] === 'string')?.data?.['sessionId'];
+  if (typeof sessionId !== 'string') {
+    return;
+  }
+  const session = store.getBootstrapSession(sessionId);
+  if (session === undefined) {
+    return;
+  }
+  const revisionId = events.find((event) => typeof event.data?.['revisionId'] === 'string')?.data?.['revisionId'];
+  const revision = typeof revisionId === 'string'
+    ? store.listBootstrapRevisions(sessionId).find((candidate) => candidate.id === revisionId)
+    : undefined;
+  if (persistBootstrapState !== undefined) {
+    await persistBootstrapState(session, revision);
+    return;
+  }
+  if (process.env['DATABASE_URL'] === undefined || process.env['NODE_ENV'] === 'test') {
+    return;
+  }
+  const { saveBootstrapSessionWithRevision } = await import('../bootstrap/repositories/prisma-session-repository');
+  await saveBootstrapSessionWithRevision(session, revision);
+}
+
 async function finalizeAcceptedCommand(
   validation: ReturnType<typeof validateCommandEnvelope>,
   result: CommandResult,
@@ -247,6 +328,7 @@ async function finalizeAcceptedCommand(
   persistAcceptedCommand: ((envelope: CommandEnvelope, command: CommandRecord, run: RunRecord) => Promise<void>) | undefined,
   commandWasKnown: boolean,
   dispatchCommand: ((envelope: CommandEnvelope, run: RunRecord, canonicalVersion?: string) => Promise<void>) | undefined,
+  payload: Record<string, unknown>,
   options: CreateApiServerOptions,
 ): Promise<void> {
   if (!('ok' in validation) || result.status !== 'accepted') {
@@ -262,6 +344,20 @@ async function finalizeAcceptedCommand(
     return;
   }
   await persistControlledRunStatus(validation.envelope, store);
+
+  const bootstrap = applyBootstrapCommand({
+    store,
+    envelope: validation.envelope,
+    runId: result.runId,
+    payload,
+  });
+  const bootstrapEvents = validation.envelope.intent === 'confirm-import'
+    ? [...bootstrap.events, ...await applyConfirmedImport(store, result.runId, payload)]
+    : bootstrap.events;
+  await persistBootstrapCommandState(store, bootstrapEvents, options.persistBootstrapState);
+  for (const event of bootstrapEvents) {
+    eventBus.publish(event);
+  }
 
   syncArtifactSummary(store, eventBus, validation.envelope, result, getWorkspaceValidity);
   await applyPersistedProposalDecision({
@@ -579,7 +675,7 @@ async function applyPersistedProposalDecision({
   const loadActiveProposal = options.loadActiveProposal
     ?? (persistenceEnabled ? findActiveProposalForTarget : undefined);
   const proposal = loadActiveProposal === undefined
-    ? undefined
+    ? store.getActiveProposal(envelope.artifactType, envelope.targetId)
     : await loadActiveProposal(envelope.workspaceId, envelope.bookId, envelope.artifactType, envelope.targetId);
   const snapshot = store.getLastKnownSnapshot(envelope.workspaceId);
   if (proposal === undefined || snapshot === undefined) {
@@ -614,6 +710,8 @@ async function applyPersistedProposalDecision({
   } else if (persistenceEnabled) {
     const { persistProposal } = await import('../persistence/operations');
     await persistProposal(envelope.workspaceId, envelope.bookId, decision.proposal);
+  } else {
+    store.saveProposal(decision.proposal);
   }
 
   if (decision.canCommit) {
@@ -640,11 +738,34 @@ async function applyPersistedProposalDecision({
   }
   updateArtifactDecisionStatus(store, envelope, decision.proposal.status, decision.canCommit);
   eventBus.publish({
-    type: decision.canCommit ? 'artifact.canonical-committed' : 'artifact.approved',
+    type: resolveProposalDecisionEventType(envelope, decision.proposal.status, decision.canCommit),
     runId,
     emittedAt: new Date().toISOString(),
     data: { proposalId: decision.proposal.proposalId, status: decision.proposal.status },
   });
+}
+
+function resolveProposalDecisionEventType(
+  envelope: CommandEnvelope,
+  proposalStatus: string,
+  canonicalCommitted: boolean,
+): string {
+  if (canonicalCommitted) {
+    return 'artifact.canonical-committed';
+  }
+  if (proposalStatus === 'waiting-sync' || proposalStatus === 'commit-blocked') {
+    return 'artifact.commit-blocked';
+  }
+  if (envelope.intent === 'reject') {
+    return 'artifact.rejected';
+  }
+  if (envelope.intent === 'export-draft') {
+    return 'artifact.exported';
+  }
+  if (envelope.intent === 'override-approve') {
+    return 'artifact.override-approved';
+  }
+  return 'artifact.approved';
 }
 
 async function commitApprovedProposalDraft(input: {
@@ -814,6 +935,9 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
     const workspaceId = readFormValue(form, 'workspaceId') ?? 'workspace-local';
     const bookId = readFormValue(form, 'bookId') ?? 'book-local';
     const note = readFormValue(form, 'note');
+    if (note !== undefined && [...note].length > INLINE_EDIT_CHAR_LIMIT) {
+      return jsonResponse({ status: 'rejected', code: 'inline-edit-too-long', message: `Inline edits are limited to ${INLINE_EDIT_CHAR_LIMIT} characters.` }, 400);
+    }
     if (note !== undefined && note.trim().length > 0) {
       applyInlineEditNote(artifactType, targetId, note.trim());
     }
@@ -871,6 +995,7 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
         persistAcceptedCommand,
         commandWasKnown,
         dispatchCommand,
+        asRecord(payload),
         options,
       );
     }
@@ -885,7 +1010,13 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
     return jsonResponse(command);
   }
 
-  function handleListRuns(): Response {
+  async function handleListRuns(): Promise<Response> {
+    if (store.listRuns().length === 0 && process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test') {
+      const persistedRuns = await listPersistedRuns();
+      for (const run of persistedRuns) {
+        store.saveRun(run);
+      }
+    }
     return jsonResponse(store.listRuns());
   }
 
@@ -893,23 +1024,51 @@ export function createApiServer(options: CreateApiServerOptions = {}) {
     return jsonResponse(store.listArtifacts());
   }
 
-  function handleListBootstrapSessions(): Response {
+  async function handleListBootstrapSessions(): Promise<Response> {
+    if (store.listBootstrapSessions().length === 0 && process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test') {
+      const { listPersistedBootstrapSessions } = await import('../bootstrap/repositories/prisma-session-repository');
+      const sessions = await listPersistedBootstrapSessions();
+      for (const session of sessions) {
+        store.upsertBootstrapSession(session);
+      }
+    }
     return jsonResponse(store.listBootstrapSessions());
   }
 
-  function handleGetBootstrapSession(sessionId: string): Response {
-    const session = store.getBootstrapSession(sessionId);
+  async function handleGetBootstrapSession(sessionId: string): Promise<Response> {
+    let session = store.getBootstrapSession(sessionId);
+    if (session === undefined && process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test') {
+      const { findPersistedBootstrapSession } = await import('../bootstrap/repositories/prisma-session-repository');
+      session = await findPersistedBootstrapSession(sessionId);
+      if (session !== undefined) {
+        store.upsertBootstrapSession(session);
+      }
+    }
     if (session === undefined) {
       return jsonResponse({ status: 'rejected', code: 'not-found', message: `Unknown bootstrap session "${sessionId}".` }, 404);
     }
     return jsonResponse(session);
   }
 
-  function handleGetBootstrapSessionRevisions(sessionId: string): Response {
+  async function handleGetBootstrapSessionRevisions(sessionId: string): Promise<Response> {
+    if (store.listBootstrapRevisions(sessionId).length === 0 && process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test') {
+      const { listPersistedBootstrapRevisions } = await import('../bootstrap/repositories/prisma-session-repository');
+      const revisions = await listPersistedBootstrapRevisions(sessionId);
+      for (const revision of revisions) {
+        store.upsertBootstrapRevision(revision);
+      }
+    }
     return jsonResponse(store.listBootstrapRevisions(sessionId));
   }
 
-  function handleGetBootstrapSessionEvidence(sessionId: string): Response {
+  async function handleGetBootstrapSessionEvidence(sessionId: string): Promise<Response> {
+    if (store.listBootstrapEvidence(sessionId).length === 0 && process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test') {
+      const { listPersistedBootstrapEvidence } = await import('../bootstrap/repositories/prisma-session-repository');
+      const evidence = await listPersistedBootstrapEvidence(sessionId);
+      for (const item of evidence) {
+        store.upsertBootstrapEvidence(item);
+      }
+    }
     return jsonResponse(store.listBootstrapEvidence(sessionId));
   }
 

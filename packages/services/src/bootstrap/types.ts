@@ -41,7 +41,7 @@ export const LICENSE_SCOPE_VALUES = ['permissive', 'attribution-required', 'rest
 export interface BootstrapSession {
   readonly id: string;
   readonly workspaceId: string;
-  readonly bookId: string;
+  readonly bookId?: string | undefined;
   readonly path: BootstrapPath;
   readonly status: BootstrapSessionStatus;
   readonly currentStage: BootstrapStage;

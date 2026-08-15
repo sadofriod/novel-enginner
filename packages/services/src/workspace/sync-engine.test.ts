@@ -390,8 +390,10 @@ describe('WorkspaceSyncSession', () => {
 });
 
 describe('guardCommandAgainstWorkspaceValidity', () => {
-  test('blocks write-related intents while dirty or invalid', () => {
+  test('allows approval decisions to enter the waiting-sync queue while dirty', () => {
     expect(guardCommandAgainstWorkspaceValidity('propose', 'dirty').blocked).toBe(true);
+    expect(guardCommandAgainstWorkspaceValidity('approve', 'dirty').blocked).toBe(false);
+    expect(guardCommandAgainstWorkspaceValidity('override-approve', 'dirty').blocked).toBe(false);
     expect(guardCommandAgainstWorkspaceValidity('approve', 'invalid').blocked).toBe(true);
   });
 

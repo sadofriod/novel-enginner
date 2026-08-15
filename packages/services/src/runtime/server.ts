@@ -1,12 +1,14 @@
-/* eslint-disable complexity */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { serve as serveInngest } from 'inngest/bun';
 
-import { handleHandEditedArtifact } from '../agent/synthetic-review';
 import { createApiServer } from './api-server';
 import { seedWebConsoleFixture } from './seed-web-fixtures';
 import { readCanonicalWorkspaceFiles, startWorkspaceFileWatcher } from '../workspace/file-watcher';
 import { inngest, inngestFunctions } from '../workflow';
+import { coordinateWorkspaceSync } from './workspace-sync-coordinator';
+import { validateCapabilityStartup } from './capability-startup';
 
 const port = Number.parseInt(process.env['SERVICE_PORT'] ?? process.env['PORT'] ?? '3000', 10);
 
@@ -15,17 +17,20 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 
 const workspaceRoot = process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd();
+const registryMarkdown = readFileSync(join(workspaceRoot, 'state/capabilities/registry.md'), 'utf8');
+const mcpConfig = JSON.parse(readFileSync(join(workspaceRoot, 'mcp.json'), 'utf8')) as { readonly servers?: Record<string, unknown> };
+validateCapabilityStartup(registryMarkdown, mcpConfig);
 const apiServer = createApiServer({ workspaceRoot });
 const inngestHandler = serveInngest({ client: inngest, functions: inngestFunctions });
-const proposalArtifactTypeByCanonicalKind: Readonly<Record<string, string>> = {
-  character: 'character-update',
-  faction: 'faction-update',
-  location: 'location-update',
-  'tech-rule': 'tech-rule-update',
-  fact: 'fact-update',
-  relationship: 'relationship-update',
-  resource: 'resource-update',
-};
+
+if (process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test') {
+  const cleanupBootstrapSessions = async (): Promise<void> => {
+    const { deleteExpiredAbandonedBootstrapSessions } = await import('../bootstrap/repositories/prisma-session-repository');
+    await deleteExpiredAbandonedBootstrapSessions();
+  };
+  void cleanupBootstrapSessions();
+  setInterval(() => { void cleanupBootstrapSessions(); }, 24 * 60 * 60 * 1000).unref();
+}
 
 const workspaceId = process.env['NOVEL_WORKSPACE_ID'] ?? 'workspace-local';
 const workspaceWatcher = startWorkspaceFileWatcher({
@@ -33,56 +38,47 @@ const workspaceWatcher = startWorkspaceFileWatcher({
   session: apiServer.store.getOrCreateSyncSession(workspaceId),
   syncOnStart: true,
   onSync: async (state) => {
-    apiServer.store.setLastKnownSnapshot(workspaceId, state.snapshot);
-    apiServer.store.setWorkspaceValidity(workspaceId, state.validity);
     const files = await readCanonicalWorkspaceFiles(workspaceRoot);
-    const contentByPath = new Map(files.map((file) => [file.path, file.content]));
-    await Promise.all(state.changedPaths.map(async (path) => {
-      const entity = state.snapshot.entities.get(path);
-      const artifactType = entity === undefined ? undefined : proposalArtifactTypeByCanonicalKind[entity.kind];
-      const targetId = entity === undefined ? undefined : (entity.data as { id?: unknown }).id;
-      if (artifactType === undefined || typeof targetId !== 'string') {
-        return;
-      }
-      const artifact = apiServer.store.getArtifact(artifactType, targetId);
-      const wasApprovedBeforeEdit = artifact?.proposalStatus === 'approved' || artifact?.proposalStatus === 'override-approved';
-      const editedText = contentByPath.get(path);
-      if (editedText !== undefined && apiServer.store.consumeInternalCanonicalCommit(path, editedText)) {
-        return;
-      }
-      const freshness = await handleHandEditedArtifact({
-        workspaceId,
-        bookId: process.env['NOVEL_BOOK_ID'] ?? 'book-local',
-        artifactType,
-        targetId,
-        filePath: path,
-        wasApprovedBeforeEdit,
-        ...(editedText !== undefined ? { editedText } : {}),
-        ...(artifact?.activeProposalId !== undefined ? { proposalId: artifact.activeProposalId } : {}),
-      }, process.env['INNGEST_EVENT_KEY'] === undefined ? undefined : async (event) => {
-        const { dispatchSyntheticReviewToInngest } = await import('../workflow/inngest-client');
-        await dispatchSyntheticReviewToInngest(event.data);
-      });
-      if (freshness.stale && artifact !== undefined) {
-        apiServer.store.upsertArtifact({
-          ...artifact,
-          reviewStale: true,
-          updatedAt: new Date().toISOString(),
+    await coordinateWorkspaceSync({
+      store: apiServer.store,
+      eventBus: apiServer.eventBus,
+      workspaceId,
+      bookId: process.env['NOVEL_BOOK_ID'] ?? 'book-local',
+      session: apiServer.store.getOrCreateSyncSession(workspaceId),
+      state,
+      files,
+      getActiveRuns: () => apiServer.store.listActiveWriteRuns(),
+      onDerivedRebuild: async ({ workspaceId: derivedWorkspaceId, bookId: derivedBookId, snapshot }) => {
+        if (process.env['DATABASE_URL'] === undefined) {
+          return;
+        }
+        const jobId = `watcher-derived-${snapshot.snapshotId}`;
+        const { persistDerivedRebuildJob } = await import('../persistence/operations');
+        await persistDerivedRebuildJob({ jobId, workspaceId: derivedWorkspaceId, bookId: derivedBookId, jobType: 'graph-search-embedding', status: 'running', triggeredBy: 'watcher-sync' });
+        try {
+          const { rebuildDerivedSearchIndex } = await import('../graph/embedding-dispatch');
+          await rebuildDerivedSearchIndex(snapshot, { workspaceId: derivedWorkspaceId, bookId: derivedBookId });
+          await persistDerivedRebuildJob({ jobId, workspaceId: derivedWorkspaceId, bookId: derivedBookId, jobType: 'graph-search-embedding', status: 'completed' });
+        } catch (cause) {
+          await persistDerivedRebuildJob({ jobId, workspaceId: derivedWorkspaceId, bookId: derivedBookId, jobType: 'graph-search-embedding', status: 'failed', errorReason: cause instanceof Error ? cause.message : String(cause) });
+          throw cause;
+        }
+      },
+      onSyntheticCommit: async (syntheticCommit) => {
+        if (process.env['DATABASE_URL'] === undefined) {
+          return;
+        }
+        const { persistSyntheticCommit } = await import('../persistence/operations');
+        await persistSyntheticCommit({
+          syntheticCommitId: syntheticCommit.commitId,
+          workspaceId,
+          bookId: process.env['NOVEL_BOOK_ID'] ?? 'book-local',
+          targetFilePaths: syntheticCommit.changedPaths,
+          canonicalVersion: syntheticCommit.snapshotId,
+          message: 'Automatic workspace re-sync',
         });
-      }
-    }));
-    const syntheticCommit = apiServer.store.getOrCreateSyncSession(workspaceId).commitSyntheticSession();
-    if (syntheticCommit !== undefined && process.env['DATABASE_URL'] !== undefined) {
-      const { persistSyntheticCommit } = await import('../persistence/operations');
-      await persistSyntheticCommit({
-        syntheticCommitId: syntheticCommit.commitId,
-        workspaceId,
-        bookId: process.env['NOVEL_BOOK_ID'] ?? 'book-local',
-        targetFilePaths: syntheticCommit.changedPaths,
-        canonicalVersion: syntheticCommit.snapshotId,
-        message: 'Automatic workspace re-sync',
-      });
-    }
+      },
+    });
   },
 });
 

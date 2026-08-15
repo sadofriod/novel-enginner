@@ -26,16 +26,19 @@ import { generateManuscript } from '../agent/drafter';
 import { outlineChapter } from '../agent/plot-planner';
 import { createDefaultModelProvider } from '../agent/provider';
 import { generateWorldState } from '../agent/world-builder';
-import { assembleReviewerResult, DEFAULT_REVIEWER_RULE_THRESHOLDS } from '../agent/reviewer';
+import { assembleReviewerResult } from '../agent/reviewer';
+import { requestReviewerModelEvidence } from '../agent/reviewer-agent';
+import { loadReviewerRules } from '../agent/reviewer-rules-loader';
 import {
   listActiveProposalsForBook,
   findProposal,
   persistCanonicalDraft,
   persistProposal,
-  persistReviewerResult,
+  persistReviewerResultAndLinkProposal,
 } from '../persistence/operations';
-import { type Proposal } from '../domain/schema';
+import { type Proposal, type ReviewerResult } from '../domain/schema';
 import {
+  createBootstrapArtifactDraft,
   createChapterManuscriptDraft,
   createChapterOutlineDraft,
   createVolumeOutlineDraft,
@@ -126,6 +129,54 @@ async function synchronizeWorkflowWorkspace(input: {
   }
   return body.canonicalVersion;
 }
+
+export const projectBriefFunction = inngest.createFunction(
+  { id: 'project-brief-workflow', name: 'Project Brief Workflow', concurrency: { limit: 1, key: 'event.data.bookId' }, retries: 2 },
+  { event: 'novel/project-brief.requested' },
+  async ({ event, step }) => {
+    const { workspaceId, bookId, targetId, intent, runId } = event.data;
+    const canonicalVersion = await step.run('re-sync-state', async () =>
+      synchronizeWorkflowWorkspace({ workspaceId, bookId, requestedBy: event.data.requestedBy, runId }));
+    const generated = await step.run('generate-project-brief', async () => generateWorldState({
+      artifactType: 'project-brief', targetId, canonicalContext: `workspace=${workspaceId}; book=${bookId}`,
+      instructions: 'Return only complete canonical Markdown for state/book/project-brief.md with every required ProjectBrief frontmatter field.',
+    }, createDefaultModelProvider()));
+    const proposalResult = await step.run('create-proposal', async () => createPersistedProposal({
+      workspaceId, bookId, artifactType: 'project-brief', targetId, intent, parentRunId: runId, canonicalVersion,
+    }));
+    await step.run('persist-canonical-draft', async () => persistCanonicalDraft({
+      draft: createBootstrapArtifactDraft({ proposalId: proposalResult.created.proposalId, artifactType: 'project-brief', content: generated.text }),
+      proposal: proposalResult.created,
+    }));
+    return { proposalId: proposalResult.created.proposalId, status: proposalResult.created.status, workspaceId, bookId, targetId };
+  },
+);
+
+export const worldFoundationFunction = inngest.createFunction(
+  { id: 'world-foundation-workflow', name: 'World Foundation Workflow', concurrency: { limit: 1, key: 'event.data.bookId' }, retries: 2 },
+  { event: 'novel/world-foundation.requested' },
+  async ({ event, step }) => {
+    const { workspaceId, bookId, targetId, intent, runId } = event.data;
+    const canonicalVersion = await step.run('re-sync-state', async () => synchronizeWorkflowWorkspace({ workspaceId, bookId, requestedBy: event.data.requestedBy, runId }));
+    const generated = await step.run('generate-world-foundation', async () => generateWorldState({ artifactType: 'world-foundation', targetId, canonicalContext: `workspace=${workspaceId}; book=${bookId}`, instructions: 'Return only complete canonical Markdown for state/world/world-foundation.md with every required WorldFoundation frontmatter field.' }, createDefaultModelProvider()));
+    const proposalResult = await step.run('create-proposal', async () => createPersistedProposal({ workspaceId, bookId, artifactType: 'world-foundation', targetId, intent, parentRunId: runId, canonicalVersion }));
+    await step.run('persist-canonical-draft', async () => persistCanonicalDraft({ draft: createBootstrapArtifactDraft({ proposalId: proposalResult.created.proposalId, artifactType: 'world-foundation', content: generated.text }), proposal: proposalResult.created }));
+    return { proposalId: proposalResult.created.proposalId, status: proposalResult.created.status, workspaceId, bookId, targetId };
+  },
+);
+
+export const storyBlueprintFunction = inngest.createFunction(
+  { id: 'story-blueprint-workflow', name: 'Story Blueprint Workflow', concurrency: { limit: 1, key: 'event.data.bookId' }, retries: 2 },
+  { event: 'novel/story-blueprint.requested' },
+  async ({ event, step }) => {
+    const { workspaceId, bookId, targetId, intent, runId } = event.data;
+    const canonicalVersion = await step.run('re-sync-state', async () => synchronizeWorkflowWorkspace({ workspaceId, bookId, requestedBy: event.data.requestedBy, runId }));
+    const generated = await step.run('generate-story-blueprint', async () => generateWorldState({ artifactType: 'story-blueprint', targetId, canonicalContext: `workspace=${workspaceId}; book=${bookId}`, instructions: 'Return only complete canonical Markdown for state/book/story-blueprint.md with every required StoryBlueprint frontmatter field.' }, createDefaultModelProvider()));
+    const proposalResult = await step.run('create-proposal', async () => createPersistedProposal({ workspaceId, bookId, artifactType: 'story-blueprint', targetId, intent, parentRunId: runId, canonicalVersion }));
+    await step.run('persist-canonical-draft', async () => persistCanonicalDraft({ draft: createBootstrapArtifactDraft({ proposalId: proposalResult.created.proposalId, artifactType: 'story-blueprint', content: generated.text }), proposal: proposalResult.created }));
+    return { proposalId: proposalResult.created.proposalId, status: proposalResult.created.status, workspaceId, bookId, targetId };
+  },
+);
 
 // ---------------------------------------------------------------------------
 // chapter-outline workflow
@@ -268,7 +319,7 @@ export const chapterManuscriptFunction = inngest.createFunction(
     });
 
     const provider = createDefaultModelProvider();
-    const draft = await step.run('drafter-generate', async () => {
+    let draft = await step.run('drafter-generate', async () => {
       return generateManuscript({
         artifactType: 'chapter-manuscript',
         targetId,
@@ -278,35 +329,25 @@ export const chapterManuscriptFunction = inngest.createFunction(
     });
 
     // Step 4: Reviewer assesses the manuscript — up to 2 rounds.
+    let finalReview: ReviewerResult | undefined;
     for (let round = 1; round <= 2; round += 1) {
-      const reviewPassed = await step.run(`reviewer-round-${round}`, async () => {
+      const review = await step.run(`reviewer-round-${round}`, async () => {
         const result = assembleReviewerResult(
           draft.text,
-          {
-            hardFailures: [],
-            dimensionScores: {
-              antiAiVoice: 85,
-              webFictionPacing: 85,
-              emotionCurve: 85,
-              characterConsistency: 85,
-              settingConsistency: 85,
-              clueCausality: 85,
-              readabilityLayout: 85,
-              languageTexture: 85,
-            },
-            rewriteDirectives: [],
-          },
-          DEFAULT_REVIEWER_RULE_THRESHOLDS,
+          await requestReviewerModelEvidence(provider, 'chapter-manuscript', draft.text),
+          await loadReviewerRules(process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd()),
         );
-        return result.approved;
+        return result;
       });
 
-      if (reviewPassed) {
+      finalReview = review;
+
+      if (review.approved) {
         break;
       }
 
       if (round < 2) {
-        await step.run(`drafter-rewrite-${round}`, async () => {
+        draft = await step.run(`drafter-rewrite-${round}`, async () => {
           return generateManuscript({
             artifactType: 'chapter-manuscript',
             targetId,
@@ -316,6 +357,17 @@ export const chapterManuscriptFunction = inngest.createFunction(
         });
       }
     }
+
+    await step.run('persist-reviewer-result', async () => {
+      if (finalReview === undefined) {
+        throw new NonRetriableError('Manuscript workflow completed without reviewer evidence.');
+      }
+      await persistReviewerResultAndLinkProposal(
+        `review-${proposalResult.created.proposalId}`,
+        proposalResult.created.proposalId,
+        finalReview,
+      );
+    });
 
     await step.run('persist-canonical-draft', async () => {
       const draftPayload = createChapterManuscriptDraft({
@@ -444,20 +496,8 @@ export const worldChangeFunction = inngest.createFunction(
     const review = await step.run('reviewer-check', async () => {
       return assembleReviewerResult(
         worldChange.text,
-        {
-          hardFailures: [],
-          dimensionScores: {
-            antiAiVoice: 85,
-            webFictionPacing: 85,
-            emotionCurve: 85,
-            characterConsistency: 85,
-            settingConsistency: 85,
-            clueCausality: 85,
-            readabilityLayout: 85,
-            languageTexture: 85,
-          },
-          rewriteDirectives: [],
-        },
+        await requestReviewerModelEvidence(createDefaultModelProvider(), 'world-change', worldChange.text),
+        await loadReviewerRules(process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd()),
       );
     });
 
@@ -497,25 +537,12 @@ export const syntheticReviewFunction = inngest.createFunction(
 
       const result = assembleReviewerResult(
         editedText,
-        {
-          hardFailures: [],
-          dimensionScores: {
-            antiAiVoice: 85,
-            webFictionPacing: 85,
-            emotionCurve: 85,
-            characterConsistency: 85,
-            settingConsistency: 85,
-            clueCausality: 85,
-            readabilityLayout: 85,
-            languageTexture: 85,
-          },
-          rewriteDirectives: [],
-        },
-        DEFAULT_REVIEWER_RULE_THRESHOLDS,
+        await requestReviewerModelEvidence(createDefaultModelProvider(), artifactType, editedText),
+        await loadReviewerRules(process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd()),
       );
 
       if (proposalId !== undefined) {
-        await persistReviewerResult(
+        await persistReviewerResultAndLinkProposal(
           `synthetic-review-${targetId}-${Date.now().toString(36)}`,
           proposalId,
           result,
@@ -563,6 +590,9 @@ export const rebuildGraphFunction = inngest.createFunction(
 
 /** All Inngest functions registered for this workspace service. */
 export const inngestFunctions = [
+  projectBriefFunction,
+  worldFoundationFunction,
+  storyBlueprintFunction,
   chapterOutlineFunction,
   chapterManuscriptFunction,
   volumeOutlineFunction,

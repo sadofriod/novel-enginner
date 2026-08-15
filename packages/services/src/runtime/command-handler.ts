@@ -166,10 +166,16 @@ function resolveExistingCommand(
   return toAcceptedResponse(existing, run, envelope);
 }
 
-function buildAcceptedRecord(envelope: CommandEnvelope, acceptedAt: string): { commandRecord: CommandRecord; runRecord: RunRecord } {
+/* eslint-disable complexity */
+function buildAcceptedRecord(
+  envelope: CommandEnvelope,
+  acceptedAt: string,
+  store: RuntimeStore,
+): { commandRecord: CommandRecord; runRecord: RunRecord } {
   const commandId = nextCommandId();
   const runId = nextRunId();
   const nextExpectedState = NEXT_EXPECTED_STATE_BY_INTENT[envelope.intent];
+  const basedOnCanonicalVersion = store.getLastKnownSnapshot(envelope.workspaceId)?.snapshotId;
   const commandRecord: CommandRecord = {
     commandId,
     runId,
@@ -185,6 +191,8 @@ function buildAcceptedRecord(envelope: CommandEnvelope, acceptedAt: string): { c
     ...(envelope.artifactType !== undefined ? { artifactType: envelope.artifactType } : {}),
     ...(envelope.systemTaskType !== undefined ? { systemTaskType: envelope.systemTaskType } : {}),
     ...(envelope.targetId !== undefined ? { targetId: envelope.targetId } : {}),
+    intent: envelope.intent,
+    ...(basedOnCanonicalVersion === undefined ? {} : { basedOnCanonicalVersion }),
     status: 'accepted',
     nextExpectedState,
     createdAt: acceptedAt,
@@ -192,6 +200,7 @@ function buildAcceptedRecord(envelope: CommandEnvelope, acceptedAt: string): { c
   };
   return { commandRecord, runRecord };
 }
+/* eslint-enable complexity */
 
 /* eslint-disable complexity */
 export function handleCommand(payload: unknown, deps: HandleCommandDeps): CommandResult {
@@ -217,7 +226,7 @@ export function handleCommand(payload: unknown, deps: HandleCommandDeps): Comman
 
   const now = deps.now?.() ?? new Date();
   const acceptedAt = now.toISOString();
-  const { commandRecord, runRecord } = buildAcceptedRecord(envelope, acceptedAt);
+  const { commandRecord, runRecord } = buildAcceptedRecord(envelope, acceptedAt, deps.store);
   recordAcceptedCommand(deps, commandRecord, runRecord, envelope.intent, acceptedAt);
   applyRunControlIntent(envelope, deps.store, deps.eventBus, acceptedAt);
 

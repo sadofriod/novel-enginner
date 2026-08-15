@@ -1,3 +1,5 @@
+import type { Proposal } from '../domain';
+import type { WorkspaceSnapshot } from '../workspace/sync-engine';
 import type { ArtifactSummary, RuntimeStore } from './store';
 
 const SEEDED_ARTIFACT: ArtifactSummary = {
@@ -60,7 +62,19 @@ const SEEDED_ARTIFACT: ArtifactSummary = {
 };
 
 export function seedWebConsoleFixture(store: RuntimeStore): void {
+  const proposal: Proposal = {
+    proposalId: 'proposal-chapter-0042-001',
+    artifactType: 'chapter-outline',
+    targetId: 'chapter-0042-outline',
+    status: 'pending-approval',
+    intent: 'propose',
+    basedOnCanonicalVersion: 'snap-0001',
+    parentRunId: 'run-seed-001',
+  };
+  const snapshot: WorkspaceSnapshot = { snapshotId: proposal.basedOnCanonicalVersion, entities: new Map() };
   store.upsertArtifact(SEEDED_ARTIFACT);
+  store.saveProposal(proposal);
+  store.setLastKnownSnapshot('workspace-e2e', snapshot);
   store.saveRun({
     runId: 'run-seed-001',
     commandId: 'cmd-seed-001',

@@ -320,9 +320,12 @@ model BootstrapSession {
   stage              String   // current stage per 11.3 or 11.4 flow
   path               String   // new-book or import
   currentRevisionId   String?
+  bookName           String?
+  sessionType        String?
   completedAt        DateTime?
   abandonedAt        DateTime?
   failedAt           DateTime?
+  expiresAt          DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -347,7 +350,7 @@ model BootstrapRevision {
   createdAt        DateTime @default(now())
   expiresAt        DateTime // 30 days from creation for cleanup
 
-  session  BootstrapSession @relation(fields: [sessionId], references: [sessionId])
+  session  BootstrapSession @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
   evidence BootstrapEvidence[]
 
   @@index([sessionId])
@@ -365,9 +368,11 @@ model BootstrapEvidence {
   collectedAt     DateTime @default(now())
   cleanedSummary  String?  // sanitized excerpt free of copyrighted content
   licenseScope    String   // permissive, attribution-required, restricted, copyrighted
+  copyrightBoundary String
+  status          String
   createdAt       DateTime @default(now())
 
-  revision BootstrapRevision @relation(fields: [revisionId], references: [revisionId])
+  revision BootstrapRevision @relation(fields: [revisionId], references: [revisionId], onDelete: Cascade)
 
   @@index([revisionId])
   @@index([url])

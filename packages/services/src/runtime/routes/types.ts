@@ -6,12 +6,12 @@ export interface RouteApi {
   handleWebCommandAction(request: Request): Promise<Response>;
   handlePostCommand(request: Request): Promise<Response>;
   handleGetCommand(commandId: string): Response;
-  handleListRuns(): Response;
+  handleListRuns(): Response | Promise<Response>;
   handleListArtifacts(): Response;
-  handleListBootstrapSessions(): Response;
-  handleGetBootstrapSession(sessionId: string): Response;
-  handleGetBootstrapSessionRevisions(sessionId: string): Response;
-  handleGetBootstrapSessionEvidence(sessionId: string): Response;
+  handleListBootstrapSessions(): Response | Promise<Response>;
+  handleGetBootstrapSession(sessionId: string): Response | Promise<Response>;
+  handleGetBootstrapSessionRevisions(sessionId: string): Response | Promise<Response>;
+  handleGetBootstrapSessionEvidence(sessionId: string): Response | Promise<Response>;
   handleGetRun(runId: string): Response;
   handleGetArtifact(artifactType: string, targetId: string): Response;
   handleGetOverrideAudit(overrideAuditId: string): Promise<Response>;

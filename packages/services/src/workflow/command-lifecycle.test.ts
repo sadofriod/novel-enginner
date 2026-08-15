@@ -90,6 +90,21 @@ describe('proposal command lifecycle', () => {
     });
   });
 
+  test('uses a repeated approval as explicit confirmation after waiting-sync recovery', () => {
+    const result = applyProposalCommand({
+      envelope: command('approve'),
+      proposal: proposal({ status: 'waiting-sync' }),
+      currentCanonicalVersion: 'snap-0001',
+      workspaceValidity: 'clean',
+    });
+
+    expect(result).toEqual({
+      accepted: true,
+      proposal: proposal({ status: 'approved' }),
+      canCommit: true,
+    });
+  });
+
   test('supports reject and export terminal decisions', () => {
     const rejected = applyProposalCommand({
       envelope: command('reject'),

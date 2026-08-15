@@ -15,4 +15,22 @@ describe('bootstrap import scanner', () => {
     const scan = scanDirectory(['project-brief.md', 'notes.md']);
     expect(scan.summary).toContain('2');
   });
+
+  test('generates unique canonical-layout targets for numbered volumes and chapters', () => {
+    const suggestions = buildMappingSuggestions(['volume-01.md', 'volume-02.md', 'chapter-001.md', 'chapter-002.md']);
+    expect(suggestions.map((entry) => entry.canonicalTarget)).toEqual([
+      'state/volumes/volume-001.md',
+      'state/volumes/volume-002.md',
+      'state/chapters/chapter-0001-outline.md',
+      'state/chapters/chapter-0002-outline.md',
+    ]);
+  });
+
+  test('routes unnumbered chapter candidates to references until an author confirms a mapping', () => {
+    expect(buildMappingSuggestions(['chapter-notes.md'])[0]).toMatchObject({
+      detectedKind: 'reference',
+      canonicalTarget: 'references/imported/reference.md',
+      confidence: 0.2,
+    });
+  });
 });

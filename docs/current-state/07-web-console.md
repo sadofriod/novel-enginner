@@ -4,13 +4,13 @@
 
 `packages/web/src/app/WebRouter.tsx` 注册 workspace 首页、`/bootstrap/:sessionId` 和 `/app`。`WorkspaceHome.tsx` 支持新建作品、导入作品和恢复 bootstrap session；`BootstrapWorkbench.tsx` 展示 session/revision/evidence、市场研究输入、dialogue、导入 mapping、继续和放弃。
 
-`ControlConsole.tsx` 提供审批队列、工件详情、Proposal diff、bundled diff、Reviewer 结果、run trace 和 derived graph。graph 在服务端可使用静态 SVG，在客户端使用 `@xyflow/react`。
+`ControlConsole.tsx` 提供审批队列、工件详情、Proposal diff、bundled diff、Reviewer 结果、run trace 和 derived graph。Web 是纯客户端 SPA：页面由 `createRoot` 挂载，数据通过 `ApiClient` 请求独立 API；graph 在客户端使用静态 SVG 和 `@xyflow/react`。
 
 ## 2. 用户动作
 
 `ArtifactDetail.tsx` 暴露 approve、reject、override-approve、export-draft、delete；`inline-edit-guard.ts` 对 Web 微修施加 200 字限制。`api-client.ts` 支持 command、查询和 `openRunStream()`；SSE 监听 artifact、run、workspace、derived 事件。
 
-服务端还提供 `handleWebCommandAction`，支持 HTML form action、审批和 redirect。该路径与 SPA ApiClient 是两套入口，需要保持 envelope、权限/上下文和错误语义一致。
+服务端仍提供 `handleWebCommandAction`，供兼容的 HTML form action 使用；当前 SPA 主要通过 `ApiClient` 调用 JSON API。两条路径需要保持 envelope、权限/上下文和错误语义一致。
 
 ## 3. 已发现的实现风险
 

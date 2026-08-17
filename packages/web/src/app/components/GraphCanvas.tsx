@@ -1,7 +1,6 @@
 /**
  * Interactive graph canvas using @xyflow/react.
- * This component uses DOM APIs and React hooks — it must NOT be used in
- * renderToStaticMarkup (server-side). Use StaticGraphView for SSR.
+ * This component uses DOM APIs and React hooks and is rendered only in the SPA.
  *
  * Node types from docs/architecture/modules/08-graph-search-and-capabilities.md §8.2
  * Edge types from §8.3

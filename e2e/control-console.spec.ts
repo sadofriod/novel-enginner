@@ -11,18 +11,23 @@ test('author can review and approve an artifact from the web console', async ({ 
   await expect(page.getByText('Reviewer 结果')).toBeVisible();
   await expect(page.getByText('剧情图谱 / 派生状态')).toBeVisible();
 
-  await page.getByLabel(/短文本微修/).fill('修正一个短标题');
-  await page.getByRole('button', { name: 'approve', exact: true }).click();
+  const syncResponse = page.waitForResponse((response) => response.url().endsWith('/sync/re-sync-state') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: '同步工作区' }).click();
+  await expect((await syncResponse).status()).toBe(202);
+  await expect(page.getByRole('heading', { name: '命令回执' })).toBeVisible();
 
-  await page.waitForURL(/artifactType=chapter-outline&targetId=chapter-0042-outline/);
-  await expect(page.locator('body')).toContainText('approved');
-  await expect(page.locator('body')).toContainText('review-stale');
+  await page.getByLabel(/短文本微修/).fill('修正一个短标题');
+  const commandResponse = page.waitForResponse((response) => response.url().endsWith('/commands') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'approve', exact: true }).click();
+  await expect((await commandResponse).status()).toBe(202);
   await expect(page.locator('body')).toContainText('修正一个短标题');
 });
 
 test('author can create, recover, and advance a new-book bootstrap session', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: '新建作品' }).click();
+  await expect(page.getByRole('heading', { name: '新建作品向导' })).toBeVisible();
+  await page.getByRole('button', { name: '开始新建' }).click();
   await expect(page.getByRole('heading', { name: 'Bootstrap 工作台' })).toBeVisible();
   await expect(page.locator('body')).toContainText('market-research');
 
@@ -39,11 +44,12 @@ test('author can create, recover, and advance a new-book bootstrap session', asy
 
 test('author can progress an import session to a mapping review without writing canonical files', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '导入作品' }).click();
+  await page.getByRole('button', { name: '导入已有作品' }).click();
+  await page.getByLabel('已有作品目录').fill('/tmp/example-novel');
+  await page.getByRole('button', { name: '开始导入' }).click();
   await expect(page.locator('body')).toContainText('import-scan');
 
-  await page.getByLabel('导入映射 JSON').fill('{"entries":[]}');
-  await page.getByRole('button', { name: '保存映射预览' }).click();
+  await page.getByRole('button', { name: '开始扫描' }).click();
   await expect(page.getByRole('status')).toHaveText('已保存。');
   await expect(page.locator('body')).toContainText('import-mapping');
   await expect(page.getByRole('heading', { name: '确认导入' })).toBeVisible();

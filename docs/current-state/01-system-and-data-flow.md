@@ -4,7 +4,7 @@
 
 服务入口是 [packages/services/src/runtime/server.ts](../../packages/services/src/runtime/server.ts)。启动时读取工作区中的 `state/capabilities/registry.md` 与 `mcp.json`，执行 capability startup 校验，创建 API server，注册 Inngest functions，启动 workspace watcher，最后通过 `Bun.serve` 同时提供 API 和 `/api/inngest`。
 
-Web 由 [packages/web/src/server.ts](../../packages/web/src/server.ts) 和 `packages/web/webpack.config.mjs` 提供；根脚本同时启动服务端和 Web。数据库是 Docker Postgres，Prisma 管理运行时表，pgvector 由自定义 migration 管理。
+Web 是独立的 React SPA，由 `packages/web/webpack.config.mjs` 构建；开发时由 webpack-dev-server 提供静态资源，并通过 `/api` 代理到独立 API 服务。Web 不做 SSR，也不在前端服务中托管业务 API。数据库是 Docker Postgres，Prisma 管理运行时表，pgvector 由自定义 migration 管理。
 
 关键环境边界：
 
@@ -15,7 +15,7 @@ Web 由 [packages/web/src/server.ts](../../packages/web/src/server.ts) 和 `pack
 | 持久化层 | [prisma/schema.prisma](../../prisma/schema.prisma) 中的 command、run、proposal、review、audit、bootstrap、derived 表 |
 | 异步编排 | Inngest client/function，实际由 Bun handler 暴露 |
 | 派生层 | graph、SearchDocument、embedding，原则上从 `WorkspaceSnapshot` 重建 |
-| 控制面 | Bun HTTP/JSON、CLI、SSE、React Web console |
+| 控制面 | Bun HTTP/JSON、CLI、SSE、独立 React SPA |
 
 ## 2. 主数据流
 

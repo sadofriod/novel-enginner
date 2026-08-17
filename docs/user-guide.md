@@ -18,7 +18,7 @@ Novel Enginner 是一个本地小说创作控制台。你主要会在 Web 控制
 当服务已经启动后，在浏览器打开：
 
 ```text
-http://localhost:3000/app
+http://localhost:3001/app
 ```
 
 打开后你会看到三个主要区域：

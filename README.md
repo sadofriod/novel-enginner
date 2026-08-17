@@ -1,6 +1,6 @@
 # Novel Enginner
 
-Novel Enginner 是一个以 Markdown canonical state 为基础的小说创作控制面。Bun 提供本地 HTTP API，PostgreSQL + pgvector 保存运行时与派生数据，提案经过审批后才进入 canonical 内容。所有用户交互都应在 Web 控制台完成，只有本地文件系统访问保留原生交互能力。
+Novel Enginner 是一个以 Markdown canonical state 为基础的小说创作控制面。Bun 提供本地 HTTP API，React SPA 提供独立的 Web 控制台，PostgreSQL + pgvector 保存运行时与派生数据，提案经过审批后才进入 canonical 内容。所有用户交互都应在 Web 控制台完成，只有本地文件系统访问保留原生交互能力。
 
 当前仓库已提供 API handler、持久化、workflow 适配层和本地 Web 控制台。本文只记录当前代码可以实际执行的启动与使用方式。
 
@@ -30,6 +30,7 @@ pnpm dev
 默认配置会启动：
 
 - API：`http://localhost:3000`
+- Web：`http://localhost:3001`
 - PostgreSQL：`localhost:55432`
 - 数据库：`novel_enginner`
 - 用户名和密码：`novel` / `novel`
@@ -60,9 +61,12 @@ pnpm dev
 pnpm db:up
 pnpm db:down
 
-# 启动 Web 控制台与本地 API（dev 和 start 当前都运行 Bun 服务）
+# 启动 Web 控制台与本地 API
 pnpm dev
 pnpm start
+
+# 只构建前端静态资源
+pnpm build:web
 
 # 运行类型检查和测试
 pnpm typecheck
@@ -75,10 +79,10 @@ pnpm test
 bun run src/runtime/server.ts
 ```
 
-Web 控制台入口：
+Web 控制台入口（独立 SPA，前端不做 SSR）：
 
 ```text
-http://localhost:3000/app
+http://localhost:3001/app
 ```
 
 所有面向作者 / 编辑 / 审核者的操作都应在 Web 控制台完成；本地文件系统访问仍保留作为本机工作目录交互的能力，不再提供命令行交互入口。

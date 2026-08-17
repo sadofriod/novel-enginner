@@ -53,6 +53,7 @@ function createSession(input: ApplyBootstrapCommandInput, emittedAt: string): Ap
   const session: BootstrapSession = {
     id: sessionId,
     workspaceId: input.envelope.workspaceId,
+    bookId: input.envelope.bookId,
     path,
     status: path === 'import' ? 'import-review' : 'drafting',
     currentStage: initialStage(path),

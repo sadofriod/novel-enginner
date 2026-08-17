@@ -16,8 +16,7 @@ const DEFAULT_STATUS_STYLE = { background: '#f5f5f5', color: '#616161', border: 
 
 /**
  * 剧情图谱 / 派生状态 view (§6.2, §8.1-8.3).
- * Renders a static SVG graph (server-side safe, no DOM APIs).
- * For client-side interactive view, see GraphCanvas.tsx.
+ * Renders the static SVG graph used by the client-side console.
  */
 export function DerivedGraphView({ graph }: DerivedGraphViewProps) {
   if (graph === undefined) {

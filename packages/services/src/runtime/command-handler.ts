@@ -5,6 +5,7 @@ import {
   type WorkspaceValidity,
 } from '../domain';
 import { guardCommandAgainstWorkspaceValidity } from '../workspace/guard';
+import { createChildLogger } from '../common/logger';
 
 import { RunEventBus } from './event-bus';
 import { RuntimeStore, type CommandRecord, type RunRecord } from './store';
@@ -114,21 +115,28 @@ function validateArtifactEnvelope(envelope: CommandEnvelope): CommandEnvelopeVal
 export function validateCommandEnvelope(
   payload: unknown,
 ): { readonly ok: true; readonly envelope: CommandEnvelope } | CommandEnvelopeValidationError {
+  const logger = createChildLogger('command-handler:validate');
+  
   const parsed = CommandEnvelopeSchema.safeParse(payload);
   if (!parsed.success) {
+    logger.warn({ error: parsed.error.message }, 'Command envelope schema validation failed');
     return invalidEnvelope(parsed.error.message);
   }
 
   const envelope = parsed.data;
+  logger.debug({ intent: envelope.intent, workspaceId: envelope.workspaceId, bookId: envelope.bookId }, 'Command envelope schema parsed');
+  
   const isSystemIntent = SYSTEM_TASK_INTENTS.has(envelope.intent);
   const error = isSystemIntent
     ? validateSystemTaskEnvelope(envelope)
     : validateArtifactEnvelope(envelope);
 
   if (error !== undefined) {
+    logger.warn({ intent: envelope.intent, error: error.message }, 'Command envelope cross-field validation failed');
     return error;
   }
 
+  logger.debug({ intent: envelope.intent, isSystemIntent }, 'Command envelope validation successful');
   return { ok: true, envelope };
 }
 
@@ -207,19 +215,30 @@ function buildAcceptedRecord(
 
 /* eslint-disable complexity */
 export function handleCommand(payload: unknown, deps: HandleCommandDeps): CommandResult {
+  const logger = createChildLogger('command-handler:execute');
+  
   const validation = validateCommandEnvelope(payload);
   if (!('ok' in validation)) {
+    logger.warn({ code: validation.code, message: validation.message }, 'Command validation failed');
     return validation;
   }
 
   const { envelope } = validation;
+  logger.info({ intent: envelope.intent, workspaceId: envelope.workspaceId, bookId: envelope.bookId }, 'Processing command');
+  
   const earlyExit = resolveEarlyCommandExit(validation, deps);
   if (earlyExit !== undefined) {
+    if (earlyExit.status === 'accepted') {
+      logger.debug({ intent: envelope.intent, commandId: earlyExit.commandId, runId: earlyExit.runId }, 'Returning existing command (idempotent)');
+    } else {
+      logger.debug({ intent: envelope.intent, code: earlyExit.code }, 'Returning rejection from early exit');
+    }
     return earlyExit;
   }
 
   const guard = guardCommandAgainstWorkspaceValidity(envelope.intent, deps.getWorkspaceValidity(envelope.workspaceId));
   if (guard.blocked) {
+    logger.warn({ intent: envelope.intent, guardCode: guard.code, reason: guard.reason }, 'Command blocked by workspace validity guard');
     return {
       status: 'rejected',
       code: guard.code,
@@ -230,8 +249,22 @@ export function handleCommand(payload: unknown, deps: HandleCommandDeps): Comman
   const now = deps.now?.() ?? new Date();
   const acceptedAt = now.toISOString();
   const { commandRecord, runRecord } = buildAcceptedRecord(envelope, acceptedAt, deps.store);
+  
+  logger.debug({ 
+    commandId: commandRecord.commandId, 
+    runId: runRecord.runId,
+    intent: envelope.intent,
+  }, 'Accepting command');
+  
   recordAcceptedCommand(deps, commandRecord, runRecord, envelope.intent, acceptedAt);
   applyRunControlIntent(envelope, deps.store, deps.eventBus, acceptedAt);
+
+  logger.info({ 
+    commandId: commandRecord.commandId, 
+    runId: runRecord.runId,
+    intent: envelope.intent,
+    nextExpectedState: runRecord.nextExpectedState,
+  }, 'Command accepted');
 
   return toAcceptedResponse(commandRecord, runRecord, envelope);
 }
@@ -243,6 +276,8 @@ function applyRunControlIntent(
   eventBus: RunEventBus,
   emittedAt: string,
 ): void {
+  const logger = createChildLogger('command-handler:run-control');
+  
   const controlledRunIntents: Readonly<Record<string, { readonly status: string; readonly nextState: string }>> = {
     'retry-step': { status: 'running', nextState: 'run-resumed' },
     'resume-run': { status: 'running', nextState: 'run-resumed' },
@@ -253,8 +288,12 @@ function applyRunControlIntent(
   if (transition === undefined || envelope.targetId === undefined) {
     return;
   }
+  
+  logger.debug({ intent: envelope.intent, targetRunId: envelope.targetId, newStatus: transition.status }, 'Applying run control intent');
+  
   const controlledRun = store.updateRunStatus(envelope.targetId, transition.status, transition.nextState);
   if (controlledRun === undefined) {
+    logger.error({ targetRunId: envelope.targetId }, 'Target run for control intent not found');
     eventBus.publish({
       type: 'run.step.failed',
       runId: envelope.targetId,
@@ -263,6 +302,8 @@ function applyRunControlIntent(
     });
     return;
   }
+  
+  logger.info({ runId: controlledRun.runId, intent: envelope.intent, newStatus: transition.status }, 'Run control intent applied');
   publishRunControlEvent(eventBus, controlledRun.runId, envelope.intent, transition.status, emittedAt);
 }
 
@@ -273,14 +314,19 @@ function publishRunControlEvent(
   status: string,
   emittedAt: string,
 ): void {
+  const logger = createChildLogger('command-handler:run-event');
+  
   const eventType = status === 'aborted'
     ? 'run.aborted'
     : status === 'external-failed'
       ? 'external.failure'
       : undefined;
   if (eventType === undefined) {
+    logger.trace({ status }, 'No event type for run status, skipping event publication');
     return;
   }
+  
+  logger.debug({ runId, eventType, intent }, 'Publishing run control event');
   eventBus.publish({
     type: eventType,
     runId,
@@ -306,14 +352,21 @@ function recordAcceptedCommand(
   intent: CommandEnvelope['intent'],
   acceptedAt: string,
 ): void {
+  const logger = createChildLogger('command-handler:record');
+  
+  logger.debug({ commandId: commandRecord.commandId, runId: runRecord.runId }, 'Saving command and run records');
   deps.store.saveCommand(commandRecord);
   deps.store.saveRun(runRecord);
+  
+  logger.debug({ runId: runRecord.runId, commandId: commandRecord.commandId, intent }, 'Publishing command.accepted event');
   deps.eventBus.publish({
     type: 'command.accepted',
     runId: runRecord.runId,
     emittedAt: acceptedAt,
     data: { commandId: commandRecord.commandId, intent },
   });
+  
+  logger.debug({ runId: runRecord.runId, commandId: commandRecord.commandId }, 'Publishing run.started event');
   deps.eventBus.publish({
     type: 'run.started',
     runId: runRecord.runId,

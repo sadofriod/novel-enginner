@@ -4,11 +4,13 @@ export interface RouteApi {
   handleRoot(): Response;
   handleApp(request: Request): Response;
   handleWebCommandAction(request: Request): Promise<Response>;
+  handleWebSystemCommand(request: Request): Promise<Response>;
   handlePostCommand(request: Request): Promise<Response>;
   handleGetCommand(commandId: string): Response;
   handleListRuns(): Response | Promise<Response>;
   handleListArtifacts(): Response;
   handleListBootstrapSessions(): Response | Promise<Response>;
+  handleGetBootstrapConfig(): Response;
   handleGetBootstrapSession(sessionId: string): Response | Promise<Response>;
   handleGetBootstrapSessionRevisions(sessionId: string): Response | Promise<Response>;
   handleGetBootstrapSessionEvidence(sessionId: string): Response | Promise<Response>;

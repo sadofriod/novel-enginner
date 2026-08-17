@@ -60,6 +60,12 @@ function ControlConsolePage({
             </dl>
           </header>
 
+          <SystemOperationsPanel
+            workspaceId={workspaceId}
+            bookId={bookId}
+            selectedArtifact={selected}
+          />
+
           <div className="layout-grid">
             <ArtifactQueuePanel artifacts={artifacts} selectedArtifact={selected} />
             <ArtifactMainPanel
@@ -68,14 +74,104 @@ function ControlConsolePage({
               bookId={bookId}
             />
 
-            <aside className="panel">
-              <RunTracePanel runs={runs} selectedArtifact={selected} />
-            </aside>
+            <RunControlPanel runs={runs} selectedArtifact={selected} workspaceId={workspaceId} bookId={bookId} />
           </div>
         </main>
         <LiveRefreshScript runId={relatedRun?.runId} />
       </body>
     </html>
+  );
+}
+
+function SystemOperationsPanel({
+  workspaceId,
+  bookId,
+  selectedArtifact,
+}: {
+  readonly workspaceId: string;
+  readonly bookId: string;
+  readonly selectedArtifact: ArtifactSummary | undefined;
+}) {
+  return (
+    <section className="panel system-operations" aria-label="系统操作">
+      <div>
+        <h2>系统操作</h2>
+        <p>把 CLI 中的工作区同步、图谱重建和任务生成能力放到这里。</p>
+      </div>
+      <div className="command-actions">
+        <SystemCommandForm intent="re-sync-state" label="同步工作区" workspaceId={workspaceId} bookId={bookId} />
+        <SystemCommandForm intent="rebuild-graph" label="重建剧情图谱" workspaceId={workspaceId} bookId={bookId} />
+        {selectedArtifact === undefined ? null : (
+          <>
+            <SystemCommandForm intent="propose" label="生成提案" workspaceId={workspaceId} bookId={bookId} artifact={selectedArtifact} />
+            <SystemCommandForm intent="regenerate" label="重新生成提案" workspaceId={workspaceId} bookId={bookId} artifact={selectedArtifact} />
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SystemCommandForm({
+  intent,
+  label,
+  workspaceId,
+  bookId,
+  artifact,
+}: {
+  readonly intent: string;
+  readonly label: string;
+  readonly workspaceId: string;
+  readonly bookId: string;
+  readonly artifact?: ArtifactSummary;
+}) {
+  return (
+    <form method="post" action="/api/app/actions/system-command" className="command-form">
+      <input type="hidden" name="workspaceId" value={workspaceId} />
+      <input type="hidden" name="bookId" value={bookId} />
+      <input type="hidden" name="intent" value={intent} />
+      <input type="hidden" name="redirectTo" value={window.location.pathname + window.location.search} />
+      {artifact === undefined ? null : (
+        <>
+          <input type="hidden" name="artifactType" value={artifact.artifactType} />
+          <input type="hidden" name="targetId" value={artifact.targetId} />
+        </>
+      )}
+      <button type="submit">{label}</button>
+    </form>
+  );
+}
+
+function RunControlPanel({
+  runs,
+  selectedArtifact,
+  workspaceId,
+  bookId,
+}: {
+  readonly runs: readonly RunRecord[];
+  readonly selectedArtifact: ArtifactSummary | undefined;
+  readonly workspaceId: string;
+  readonly bookId: string;
+}) {
+  const visibleRuns = selectedArtifact === undefined
+    ? runs
+    : runs.filter((run) => run.artifactType === selectedArtifact.artifactType && run.targetId === selectedArtifact.targetId);
+  return (
+    <aside className="panel run-control-panel">
+      <RunTracePanel runs={runs} selectedArtifact={selectedArtifact} />
+      <h3>运行控制</h3>
+      {visibleRuns.length === 0 ? <p>没有可控制的运行。</p> : visibleRuns.map((run) => (
+        <div className="run-control-row" key={run.runId}>
+          <code>{run.runId}</code>
+          <span>{run.status}</span>
+          <div className="command-actions">
+            <SystemCommandForm intent="resume-run" label="恢复" workspaceId={workspaceId} bookId={bookId} artifact={{ ...run, artifactType: run.artifactType ?? '', targetId: run.targetId ?? '' } as ArtifactSummary} />
+            <SystemCommandForm intent="retry-step" label="重试" workspaceId={workspaceId} bookId={bookId} artifact={{ ...run, artifactType: run.artifactType ?? '', targetId: run.targetId ?? '' } as ArtifactSummary} />
+            <SystemCommandForm intent="abort-run" label="中止" workspaceId={workspaceId} bookId={bookId} artifact={{ ...run, artifactType: run.artifactType ?? '', targetId: run.targetId ?? '' } as ArtifactSummary} />
+          </div>
+        </div>
+      ))}
+    </aside>
   );
 }
 

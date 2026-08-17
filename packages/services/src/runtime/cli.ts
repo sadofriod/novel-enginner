@@ -1,13 +1,16 @@
 /* eslint-disable complexity */
 
 import type { CommandEnvelope } from '../domain';
+import { createChildLogger } from '../common/logger';
 import { runInteractiveCli } from './interactive-cli';
+
+const logger = createChildLogger('cli');
 
 const BASE_URL = process.env['NOVEL_API_BASE_URL'] ?? 'http://localhost:3000';
 const LEGACY_CLI_ENABLED = process.env['NOVEL_ALLOW_LEGACY_CLI'] === '1';
 const LEGACY_CLI_DISABLED_MESSAGE = [
   'Legacy CLI interaction has been removed.',
-  'All user-facing actions must be performed in the Web control console at http://localhost:3000/app.',
+  'All user-facing actions must be performed in the Web control console at http://localhost:3001/app.',
   'Local filesystem access remains available through the runtime; command-line interaction is intentionally disabled.',
 ].join('\n');
 
@@ -44,7 +47,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
 function requiredFlag(flags: Readonly<Record<string, string>>, name: string): string {
   const value = flags[name];
   if (value === undefined || value === '') {
-    console.error(`Missing required flag --${name}`);
+    logger.error({ flagName: name }, 'Missing required flag');
     process.exit(1);
     throw new Error(`Missing required flag --${name}`);
   }
@@ -63,6 +66,11 @@ async function postCommand(
     idempotencyKey: envelope.idempotencyKey ?? idempotencyKey(),
   } as CommandEnvelope;
 
+  logger.debug(
+    { intent: body.intent, artifactType: body.artifactType, targetId: body.targetId },
+    'Posting command',
+  );
+
   const response = await fetch(`${BASE_URL}/commands`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -71,10 +79,14 @@ async function postCommand(
 
   const json = await response.json();
   if (response.status >= 400) {
-    console.error('Command rejected:', JSON.stringify(json, null, 2));
+    logger.error(
+      { status: response.status, intent: body.intent, response: json },
+      'Command rejected by server',
+    );
     process.exit(1);
   }
 
+  logger.info({ intent: body.intent }, 'Command executed successfully');
   console.log(JSON.stringify(json, null, 2));
 }
 
@@ -82,6 +94,8 @@ async function postSync(
   syncRoute: 'rebuild-graph' | 're-sync-state',
   body: Record<string, unknown>,
 ): Promise<void> {
+  logger.debug({ syncRoute }, 'Posting sync command');
+
   const response = await fetch(`${BASE_URL}/sync/${syncRoute}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -90,10 +104,14 @@ async function postSync(
 
   const json = await response.json();
   if (response.status >= 400) {
-    console.error('Sync command rejected:', JSON.stringify(json, null, 2));
+    logger.error(
+      { status: response.status, syncRoute, response: json },
+      'Sync command rejected by server',
+    );
     process.exit(1);
   }
 
+  logger.info({ syncRoute }, 'Sync command executed successfully');
   console.log(JSON.stringify(json, null, 2));
 }
 
@@ -182,7 +200,7 @@ async function executeArtifactCommand(
   const targetId = positional[1];
 
   if (artifactType === undefined || targetId === undefined) {
-    console.error(`Usage: ${subcommand} <artifactType> <targetId> --workspace-id <id> --book-id <id>`);
+    logger.error({ subcommand, positionalCount: positional.length }, 'Missing required positional arguments');
     process.exit(1);
   }
 
@@ -210,7 +228,7 @@ async function executeRunCommand(
 ): Promise<void> {
   const runId = positional[0];
   if (runId === undefined) {
-    console.error(`Usage: ${subcommand} <runId> --workspace-id <id> --book-id <id>`);
+    logger.error({ subcommand }, 'Missing required run ID argument');
     process.exit(1);
   }
 
@@ -221,7 +239,7 @@ async function executeRunCommand(
   };
   const resolvedIntent = intentMap[subcommand];
   if (resolvedIntent === undefined) {
-    console.error(`Unknown subcommand: ${subcommand}`);
+    logger.error({ subcommand }, 'Unknown subcommand');
     process.exit(1);
   }
 
@@ -269,30 +287,22 @@ async function executeInteractiveSelection(selection: NonNullable<Awaited<Return
   }
 }
 
-async function main(): Promise<void> {
-  if (!LEGACY_CLI_ENABLED) {
-    console.error(LEGACY_CLI_DISABLED_MESSAGE);
-    process.exit(1);
-  }
-
-  const rawArgs = process.argv.slice(2);
-  if (rawArgs.length === 0) {
-    const selection = await runInteractiveCli();
-    if (selection === undefined) return;
-    await executeInteractiveSelection(selection);
-    return;
-  }
-
+async function runCommand(rawArgs: readonly string[]): Promise<void> {
   if (shouldShowUsage(rawArgs)) {
+    logger.debug('Showing usage help');
     usage();
     process.exit(0);
   }
 
   const { subcommand, positional, flags } = parseArgs(rawArgs);
+  logger.debug({ subcommand, positionalCount: positional.length, flagCount: Object.keys(flags).length }, 'Parsed CLI arguments');
+
   const cliVars = requireWorkspaceInputs(flags);
+  logger.debug({ workspaceId: cliVars.workspaceId, bookId: cliVars.bookId }, 'Resolved workspace inputs');
 
   const dispatchers: Readonly<Record<string, () => Promise<void>>> = {
     're-sync-state': async () => {
+      logger.info('Executing re-sync-state command');
       await postSync('re-sync-state', {
         workspaceId: cliVars.workspaceId,
         bookId: cliVars.bookId,
@@ -302,6 +312,7 @@ async function main(): Promise<void> {
       });
     },
     'rebuild-graph': async () => {
+      logger.info('Executing rebuild-graph command');
       await postSync('rebuild-graph', {
         workspaceId: cliVars.workspaceId,
         bookId: cliVars.bookId,
@@ -311,37 +322,46 @@ async function main(): Promise<void> {
       });
     },
     propose: async () => {
+      logger.info('Executing propose command');
       await executeArtifactCommand(subcommand, positional, cliVars);
     },
     regenerate: async () => {
+      logger.info('Executing regenerate command');
       await executeArtifactCommand(subcommand, positional, cliVars);
     },
     approve: async () => {
+      logger.info('Executing approve command');
       await executeArtifactCommand(subcommand, positional, cliVars);
     },
     reject: async () => {
+      logger.info('Executing reject command');
       await executeArtifactCommand(subcommand, positional, cliVars);
     },
     'override-approve': async () => {
+      logger.info('Executing override-approve command');
       await executeArtifactCommand(subcommand, positional, cliVars);
     },
     'export-draft': async () => {
+      logger.info('Executing export-draft command');
       await executeArtifactCommand(subcommand, positional, cliVars);
     },
     'resume-run': async () => {
+      logger.info('Executing resume-run command');
       await executeRunCommand(subcommand, positional, cliVars);
     },
     'abort-run': async () => {
+      logger.info('Executing abort-run command');
       await executeRunCommand(subcommand, positional, cliVars);
     },
     'retry-step': async () => {
+      logger.info('Executing retry-step command');
       await executeRunCommand(subcommand, positional, cliVars);
     },
   };
 
   const dispatcher = dispatchers[subcommand];
   if (dispatcher === undefined) {
-    console.error(`Unknown subcommand: ${subcommand}`);
+    logger.error({ subcommand }, 'Unknown subcommand');
     usage();
     process.exit(1);
   }
@@ -349,7 +369,35 @@ async function main(): Promise<void> {
   await dispatcher();
 }
 
+async function main(): Promise<void> {
+  if (!LEGACY_CLI_ENABLED) {
+    logger.error('Legacy CLI is disabled');
+    console.error(LEGACY_CLI_DISABLED_MESSAGE);
+    process.exit(1);
+  }
+
+  logger.debug('Starting CLI');
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs.length === 0) {
+    logger.debug('No arguments provided, starting interactive CLI');
+    const selection = await runInteractiveCli();
+    if (selection === undefined) {
+      logger.info('Interactive CLI cancelled by user');
+      return;
+    }
+    logger.info('Processing interactive selection');
+    await executeInteractiveSelection(selection);
+    return;
+  }
+
+  await runCommand(rawArgs);
+}
+
 void main().catch((error: unknown) => {
-  console.error('CLI error:', error instanceof Error ? error.message : String(error));
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  logger.fatal(
+    { error: errorMessage, stack: error instanceof Error ? error.stack : undefined },
+    'CLI encountered a fatal error',
+  );
   process.exit(1);
 });

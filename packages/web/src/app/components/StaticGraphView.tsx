@@ -1,6 +1,6 @@
 /**
  * Static SVG graph layout — pure math, no DOM APIs.
- * Used by renderToStaticMarkup (server-side) and as a no-JS fallback.
+ * Pure SVG graph view used by the client-side console.
  *
  * Layout: concentric ring — center node (the selected artifact) surrounded by
  * grouped type rings. Edge lines drawn between positions.

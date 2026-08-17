@@ -1,14 +1,18 @@
 /* eslint-disable complexity */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import type { ArtifactSummary, RunRecord } from '@novel-enginner/services/runtime/store';
+import type { CommandAcceptedResponse, CommandResult } from '@novel-enginner/services/runtime/command-handler';
+import type { CommandRecord } from '@novel-enginner/services/runtime/store';
 import { ApiClient } from './api-client';
 import { GraphCanvas } from './app/components/GraphCanvas';
 import { DerivedGraphView } from './app/components/DerivedGraphView';
 import { ApprovalQueue } from './components/ApprovalQueue';
 import { ArtifactDetail, type ApprovalAction } from './components/ArtifactDetail';
 import { BundledDiffView } from './components/BundledDiffView';
+import { CommandOperationsPanel } from './components/CommandOperationsPanel';
+import { CommandReceiptPanel } from './components/CommandReceiptPanel';
 import { ProposalDiffView } from './components/ProposalDiffView';
 import { ReviewerResultView } from './components/ReviewerResultView';
 
@@ -21,6 +25,7 @@ export interface ControlConsoleProps {
   readonly selectedArtifact?: ArtifactSummary;
   readonly onSelectArtifact?: (artifact: ArtifactSummary) => void;
   readonly onAction?: (artifact: ArtifactSummary, action: ApprovalAction, note?: string) => void;
+  readonly commandPanel?: ReactNode;
 }
 
 export interface RunTracePanelProps {
@@ -104,11 +109,30 @@ export function ControlConsole({
   selectedArtifact,
   onSelectArtifact,
   onAction,
+  commandPanel,
 }: ControlConsoleProps) {
   const [remoteArtifacts, setRemoteArtifacts] = useState<readonly ArtifactSummary[]>(artifacts);
   const [remoteRuns, setRemoteRuns] = useState<readonly RunRecord[]>(runs);
+  const [remoteWorkspace, setRemoteWorkspace] = useState<{ readonly workspaceId: string; readonly bookId: string }>();
+  const [lastCommand, setLastCommand] = useState<CommandAcceptedResponse>();
+  const [lastCommandRecord, setLastCommandRecord] = useState<CommandRecord>();
+  const [lastCommandRun, setLastCommandRun] = useState<RunRecord>();
   const visibleArtifacts = apiClient === undefined ? artifacts : remoteArtifacts;
   const visibleRuns = apiClient === undefined ? runs : remoteRuns;
+  const resolvedWorkspaceId = workspaceId ?? remoteWorkspace?.workspaceId;
+  const resolvedBookId = bookId ?? remoteWorkspace?.bookId;
+
+  const refreshConsole = async (): Promise<void> => {
+    if (apiClient === undefined) {
+      return;
+    }
+    const [nextArtifacts, nextRuns] = await Promise.all([
+      apiClient.listArtifacts(),
+      apiClient.listRuns(),
+    ]);
+    setRemoteArtifacts(nextArtifacts);
+    setRemoteRuns(nextRuns);
+  };
 
   useEffect(() => {
     if (apiClient === undefined) {
@@ -116,15 +140,17 @@ export function ControlConsole({
     }
     let cancelled = false;
     const refresh = async () => {
-      const [nextArtifacts, nextRuns] = await Promise.all([
+      const [nextArtifacts, nextRuns, nextWorkspace] = await Promise.all([
         apiClient.listArtifacts(),
         apiClient.listRuns(),
+        apiClient.getBootstrapConfig(),
       ]);
       if (cancelled) {
         return;
       }
       setRemoteArtifacts(nextArtifacts);
       setRemoteRuns(nextRuns);
+      setRemoteWorkspace({ workspaceId: nextWorkspace.workspaceId, bookId: nextWorkspace.bookId });
     };
     void refresh();
     return () => {
@@ -202,30 +228,57 @@ export function ControlConsole({
   const handleSelect = (artifact: ArtifactSummary) => {
     setSelectedKey(`${artifact.artifactType}::${artifact.targetId}`);
     onSelectArtifact?.(artifact);
+    if (apiClient !== undefined) {
+      void apiClient.getArtifact(artifact.artifactType, artifact.targetId).then((detail) => {
+        if (detail !== undefined) {
+          setRemoteArtifacts((currentArtifacts) => currentArtifacts.map((currentArtifact) => (
+            currentArtifact.artifactType === detail.artifactType && currentArtifact.targetId === detail.targetId
+              ? detail
+              : currentArtifact
+          )));
+        }
+      });
+    }
+  };
+
+  const handleCommandCompleted = async (result: CommandResult): Promise<void> => {
+    if (apiClient === undefined || result.status !== 'accepted') {
+      return;
+    }
+    const [command, run] = await Promise.all([
+      apiClient.getCommand(result.commandId),
+      apiClient.getRun(result.runId),
+    ]);
+    setLastCommand(result);
+    setLastCommandRecord(command);
+    setLastCommandRun(run);
+    await refreshConsole();
   };
 
   const handleAction = (action: ApprovalAction, note?: string) => {
     if (selected !== undefined) {
       onAction?.(selected, action, note);
+      const contextRun = visibleRuns.find(
+        (run) => run.artifactType === selected.artifactType && run.targetId === selected.targetId,
+      );
+      const actionWorkspaceId = resolvedWorkspaceId ?? contextRun?.workspaceId;
+      const actionBookId = resolvedBookId ?? contextRun?.bookId;
       if (
         apiClient !== undefined
-        && workspaceId !== undefined
-        && bookId !== undefined
+        && actionWorkspaceId !== undefined
+        && actionBookId !== undefined
         && action !== 'delete'
       ) {
         void apiClient.submitCommand({
-          workspaceId,
-          bookId,
+          workspaceId: actionWorkspaceId,
+          bookId: actionBookId,
           artifactType: selected.artifactType,
           targetId: selected.targetId,
           intent: action,
           requestedBy: 'author-local',
           approvalMode: 'manual',
           idempotencyKey: `web-${action}-${selected.targetId}-${Date.now().toString(36)}`,
-        }).then(async () => {
-          setRemoteArtifacts(await apiClient.listArtifacts());
-          setRemoteRuns(await apiClient.listRuns());
-        });
+        }).then(refreshConsole);
       }
     }
   };
@@ -268,6 +321,18 @@ export function ControlConsole({
           gap: '12px',
         }}
       >
+        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#212121' }}>Web 控制台</h1>
+        {commandPanel ?? (apiClient === undefined ? null : (
+          <CommandOperationsPanel
+            apiClient={apiClient}
+            workspaceId={resolvedWorkspaceId}
+            bookId={resolvedBookId}
+            onCommandCompleted={handleCommandCompleted}
+          />
+        ))}
+        {lastCommand === undefined ? null : (
+          <CommandReceiptPanel result={lastCommand} command={lastCommandRecord} run={lastCommandRun} />
+        )}
         {selected === undefined ? (
           <p style={{ color: '#9e9e9e', fontSize: '14px' }}>暂无可审批工件。</p>
         ) : (

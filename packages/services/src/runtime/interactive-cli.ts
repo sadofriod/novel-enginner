@@ -2,6 +2,9 @@
 
 import { emitKeypressEvents } from 'node:readline';
 import type { Key } from 'node:readline';
+import { createChildLogger } from '../common/logger';
+
+const logger = createChildLogger('interactive-cli');
 
 export type InteractiveSelection = {
   readonly syncState: boolean;
@@ -66,9 +69,12 @@ function isBackKey(key: Key): boolean {
 
 function readSelection(): Promise<InteractiveSelection | undefined> {
   if (!process.stdin.isTTY || !process.stdin.setRawMode) {
-    throw new Error('Interactive CLI requires a TTY. Use explicit subcommands in non-interactive environments.');
+    const error = new Error('Interactive CLI requires a TTY. Use explicit subcommands in non-interactive environments.');
+    logger.error('TTY not available for interactive CLI');
+    throw error;
   }
 
+  logger.debug('Starting interactive selection mode');
   const selected = OPTION_LABELS.map(() => false);
   let cursor = 0;
   const options = (): readonly InteractiveOption[] => createOptions(selected);
@@ -81,6 +87,7 @@ function readSelection(): Promise<InteractiveSelection | undefined> {
   return new Promise((resolve) => {
     const onKeypress = (_input: string, key: Key): void => {
       if (isBackKey(key)) {
+        logger.debug('User cancelled interactive selection');
         process.stdin.setRawMode(false);
         process.stdin.off('keypress', onKeypress);
         process.stdout.write('\n');
@@ -96,10 +103,19 @@ function readSelection(): Promise<InteractiveSelection | undefined> {
           selected[index] = value;
         });
       } else if (key.name === 'return') {
+        const selection = selectionFromOptions(options());
+        logger.info(
+          {
+            syncState: selection.syncState,
+            chapterCount: selection.chapterNumbers.length,
+            rebuildGraph: selection.rebuildGraph,
+          },
+          'User confirmed interactive selection',
+        );
         process.stdin.setRawMode(false);
         process.stdin.off('keypress', onKeypress);
         process.stdout.write('\n');
-        resolve(selectionFromOptions(options()));
+        resolve(selection);
         return;
       }
 
@@ -111,5 +127,11 @@ function readSelection(): Promise<InteractiveSelection | undefined> {
 }
 
 export async function runInteractiveCli(): Promise<InteractiveSelection | undefined> {
-  return readSelection();
+  logger.debug('Initializing interactive CLI');
+  const result = await readSelection();
+  logger.info(
+    { selected: result !== undefined },
+    'Interactive CLI completed',
+  );
+  return result;
 }

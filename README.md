@@ -48,6 +48,8 @@ pnpm dev
 | `OPENAI_API_KEY` | 模型生成时 | OpenAI provider 的 API Key |
 | `OPENAI_BASE_URL` | 否 | OpenAI 兼容服务的地址 |
 | `INNGEST_EVENT_KEY` | 异步 workflow 时 | Inngest 事件投递所需的 Key |
+| `INNGEST_SIGNING_KEY` | 异步 workflow 时 | Inngest 验证 `/api/inngest` 回调的签名 Key |
+| `INNGEST_BASE_URL` | 自托管 Inngest 时 | Inngest API 根地址，例如 `http://localhost:8288` |
 
 没有设置 `DATABASE_URL` 时，API 仍可用于内存模式测试；重启进程后数据会丢失。设置 `DATABASE_URL` 后，命令和运行记录会持久化到 PostgreSQL。
 
@@ -79,33 +81,66 @@ bun run src/runtime/cli.ts --help
 
 ## CLI 使用
 
-所有命令都需要 `--workspace-id` 和 `--book-id`。下面的 ID 只是示例，实际项目可以按工作区约定替换。
+直接运行 `pnpm cli` 会进入交互式 CLI。先设置当前工作区和书籍，下面的 ID 只是示例，实际项目可以按工作区约定替换：
 
 ```bash
-export WORKSPACE_ID=workspace-cybernovel-001
-export BOOK_ID=book-quantum-ascension
+export NOVEL_WORKSPACE_ID=workspace-cybernovel-001
+export NOVEL_BOOK_ID=book-quantum-ascension
+export NOVEL_REQUESTED_BY=author-local
+pnpm cli
+```
 
-# 将 canonical Markdown 重新同步到运行时
-pnpm cli -- re-sync-state --workspace-id "$WORKSPACE_ID" --book-id "$BOOK_ID"
+交互界面会显示可勾选的操作：
 
-# 重建图谱
-pnpm cli -- rebuild-graph --workspace-id "$WORKSPACE_ID" --book-id "$BOOK_ID"
+- `Sync canonical state`
+- `Generate chapter 1 (outline + manuscript)`
+- `Generate chapter 2 (outline + manuscript)`
+- `Generate chapter 3 (outline + manuscript)`
+- `Rebuild graph`
 
-# 请求单章细纲 proposal
-pnpm cli -- propose chapter-outline chapter-0042-outline \
-  --workspace-id "$WORKSPACE_ID" --book-id "$BOOK_ID"
+使用方式：
 
-# 重新生成 proposal
-pnpm cli -- regenerate chapter-outline chapter-0042-outline \
-  --workspace-id "$WORKSPACE_ID" --book-id "$BOOK_ID"
+- `Up` / `Down`：移动光标
+- `Space`：选择或取消当前操作
+- `Enter`：确认选择并执行
+- `Backspace` 或 `Escape`：返回并退出当前选择
 
-# 审批、驳回或导出草稿
-pnpm cli -- approve chapter-outline chapter-0042-outline \
-  --workspace-id "$WORKSPACE_ID" --book-id "$BOOK_ID"
-pnpm cli -- reject chapter-outline chapter-0042-outline \
-  --workspace-id "$WORKSPACE_ID" --book-id "$BOOK_ID"
-pnpm cli -- export-draft chapter-manuscript chapter-0042 \
-  --workspace-id "$WORKSPACE_ID" --book-id "$BOOK_ID"
+选择前三章后，按 Enter，CLI 会自动对每个选中的章节依次执行：生成细纲 proposal、审批细纲、生成正文 proposal、审批正文、导出草稿。章节目标 ID 会自动使用 `chapter-0001-outline` / `chapter-0001` 到 `chapter-0003-outline` / `chapter-0003`。
+
+这组操作假设 API 已在 `http://localhost:3000` 启动，数据库、Inngest 和模型 provider 已完成配置，首卷卷纲已经批准，且前三章目标已经由 onboarding 的 `chapter-outline-batch` 阶段建立。
+
+`propose`、`approve` 和 `export-draft` 是异步流程的命令入口。不要在上一个命令仍处于运行中时盲目提交下一步；先根据输出中的 `runId` 查询状态，确认细纲已批准后再请求正文：
+
+```bash
+curl "${NOVEL_API_BASE_URL:-http://localhost:3000}/runs/<runId>"
+curl -N "${NOVEL_API_BASE_URL:-http://localhost:3000}/runs/<runId>/stream"
+```
+
+如果某次运行失败，可以使用该次输出的 `runId` 重试步骤或恢复运行：
+
+```bash
+pnpm cli -- retry-step <runId> \
+  --workspace-id "$NOVEL_WORKSPACE_ID" \
+  --book-id "$NOVEL_BOOK_ID" \
+  --requested-by "$NOVEL_REQUESTED_BY"
+
+pnpm cli -- resume-run <runId> \
+  --workspace-id "$NOVEL_WORKSPACE_ID" \
+  --book-id "$NOVEL_BOOK_ID" \
+  --requested-by "$NOVEL_REQUESTED_BY"
+```
+
+显式子命令仍可用于自动化或只重试某一章；这时所有命令都需要 `--workspace-id` 和 `--book-id`。例如：
+
+```bash
+pnpm cli -- regenerate chapter-manuscript chapter-0002 \
+  --workspace-id "$NOVEL_WORKSPACE_ID" \
+  --book-id "$NOVEL_BOOK_ID" \
+  --requested-by "$NOVEL_REQUESTED_BY"
+pnpm cli -- approve chapter-manuscript chapter-0002 \
+  --workspace-id "$NOVEL_WORKSPACE_ID" \
+  --book-id "$NOVEL_BOOK_ID" \
+  --requested-by "$NOVEL_REQUESTED_BY"
 ```
 
 CLI 默认将命令发到 `NOVEL_API_BASE_URL`。每次命令会自动生成 `idempotencyKey`；需要重放同一业务请求时，可以显式传入 `--idempotency-key`。
@@ -168,6 +203,18 @@ curl -N http://localhost:3000/runs/<runId>/stream
 API 服务本身可以在没有 Inngest Key 的情况下启动，但 `propose` 等异步生成命令只有在 Inngest 事件投递和对应 worker 已配置时才会继续执行。模型生成还需要 `OPENAI_API_KEY`，或者配置 `OPENAI_BASE_URL` 指向兼容服务。
 
 当前仓库没有额外提供独立的 Inngest 本地启动脚本；如果只想验证 API、CLI、持久化和状态机，可先不配置 `INNGEST_EVENT_KEY`，使用 `pnpm test` 和上述查询命令。
+
+### 自托管 Inngest
+
+使用自托管 Inngest 时，应用和 Inngest 服务必须使用相同的 Event Key 与 Signing Key，并将 `INNGEST_BASE_URL` 指向服务的 API 端口：
+
+```dotenv
+INNGEST_BASE_URL="http://localhost:8288"
+INNGEST_EVENT_KEY="<your-event-key>"
+INNGEST_SIGNING_KEY="<your-signing-key>"
+```
+
+应用启动后，Inngest handler 位于 `http://localhost:3000/api/inngest`。如果 Inngest 在 Docker 中运行而应用在宿主机运行，请在 Inngest 的应用配置中使用 `http://host.docker.internal:3000/api/inngest`，使容器能够访问该 handler。
 
 ## 停止服务
 

@@ -1,6 +1,7 @@
 /* eslint-disable complexity */
 
 import type { CommandEnvelope } from '../domain';
+import { runInteractiveCli } from './interactive-cli';
 
 const BASE_URL = process.env['NOVEL_API_BASE_URL'] ?? 'http://localhost:3000';
 
@@ -92,7 +93,13 @@ async function postSync(
 
 function usage(): void {
   console.log(`
-Usage: bun run src/runtime/cli.ts <subcommand> [args] [flags]
+Usage: bun run src/runtime/cli.ts [subcommand] [args] [flags]
+
+Without a subcommand, starts the interactive selector:
+  Up/Down      Move cursor
+  Space        Select or deselect
+  Enter        Confirm
+  Backspace    Return
 
 Subcommands:
   re-sync-state               --workspace-id <id> --book-id <id>
@@ -121,7 +128,7 @@ Environment:
 }
 
 function shouldShowUsage(rawArgs: readonly string[]): boolean {
-  return rawArgs.length === 0 || rawArgs[0] === '--help' || rawArgs[0] === '-h';
+  return rawArgs[0] === '--help' || rawArgs[0] === '-h';
 }
 
 function requireWorkspaceInputs(
@@ -142,6 +149,17 @@ function requireWorkspaceInputs(
     requestedBy,
     userIdempotencyKey: flags['idempotency-key'],
   };
+}
+
+function interactiveFlags(): Record<string, string> {
+  const flags: Record<string, string> = {};
+  const workspaceId = process.env['NOVEL_WORKSPACE_ID'];
+  const bookId = process.env['NOVEL_BOOK_ID'];
+  const requestedBy = process.env['NOVEL_REQUESTED_BY'];
+  if (workspaceId !== undefined) flags['workspace-id'] = workspaceId;
+  if (bookId !== undefined) flags['book-id'] = bookId;
+  if (requestedBy !== undefined) flags['requested-by'] = requestedBy;
+  return flags;
 }
 
 async function executeArtifactCommand(
@@ -212,8 +230,48 @@ async function executeRunCommand(
   });
 }
 
+async function executeInteractiveSelection(selection: NonNullable<Awaited<ReturnType<typeof runInteractiveCli>>>): Promise<void> {
+  const cliVars = requireWorkspaceInputs(interactiveFlags());
+
+  if (selection.syncState) {
+    await postSync('re-sync-state', {
+      workspaceId: cliVars.workspaceId,
+      bookId: cliVars.bookId,
+      requestedBy: cliVars.requestedBy,
+      approvalMode: 'manual',
+      idempotencyKey: cliVars.userIdempotencyKey ?? idempotencyKey(),
+    });
+  }
+
+  for (const chapterNumber of selection.chapterNumbers) {
+    const chapterId = `chapter-${chapterNumber.toString().padStart(4, '0')}`;
+    await executeArtifactCommand('propose', ['chapter-outline', `${chapterId}-outline`], cliVars);
+    await executeArtifactCommand('approve', ['chapter-outline', `${chapterId}-outline`], cliVars);
+    await executeArtifactCommand('propose', ['chapter-manuscript', chapterId], cliVars);
+    await executeArtifactCommand('approve', ['chapter-manuscript', chapterId], cliVars);
+    await executeArtifactCommand('export-draft', ['chapter-manuscript', chapterId], cliVars);
+  }
+
+  if (selection.rebuildGraph) {
+    await postSync('rebuild-graph', {
+      workspaceId: cliVars.workspaceId,
+      bookId: cliVars.bookId,
+      requestedBy: cliVars.requestedBy,
+      approvalMode: 'manual',
+      idempotencyKey: cliVars.userIdempotencyKey ?? idempotencyKey(),
+    });
+  }
+}
+
 async function main(): Promise<void> {
   const rawArgs = process.argv.slice(2);
+  if (rawArgs.length === 0) {
+    const selection = await runInteractiveCli();
+    if (selection === undefined) return;
+    await executeInteractiveSelection(selection);
+    return;
+  }
+
   if (shouldShowUsage(rawArgs)) {
     usage();
     process.exit(0);
@@ -224,10 +282,22 @@ async function main(): Promise<void> {
 
   const dispatchers: Readonly<Record<string, () => Promise<void>>> = {
     're-sync-state': async () => {
-      await postSync('re-sync-state', { workspaceId: cliVars.workspaceId, bookId: cliVars.bookId });
+      await postSync('re-sync-state', {
+        workspaceId: cliVars.workspaceId,
+        bookId: cliVars.bookId,
+        requestedBy: cliVars.requestedBy,
+        approvalMode: 'manual',
+        idempotencyKey: cliVars.userIdempotencyKey ?? idempotencyKey(),
+      });
     },
     'rebuild-graph': async () => {
-      await postSync('rebuild-graph', { workspaceId: cliVars.workspaceId, bookId: cliVars.bookId });
+      await postSync('rebuild-graph', {
+        workspaceId: cliVars.workspaceId,
+        bookId: cliVars.bookId,
+        requestedBy: cliVars.requestedBy,
+        approvalMode: 'manual',
+        idempotencyKey: cliVars.userIdempotencyKey ?? idempotencyKey(),
+      });
     },
     propose: async () => {
       await executeArtifactCommand(subcommand, positional, cliVars);

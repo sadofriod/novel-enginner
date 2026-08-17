@@ -10,6 +10,12 @@ import type { CreateApiServerOptions } from '../types';
 import { confirmImport } from '../../../bootstrap/import/confirm-import';
 import type { ImportMapping } from '../../../bootstrap/import/import-mapper';
 
+export function shouldDispatchToInngest(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return env['NODE_ENV'] !== 'test' && (env['INNGEST_EVENT_KEY']?.trim() ?? '') !== '';
+}
+
 export function createPersistAcceptedCommand(input: CreateApiServerOptions['persistAcceptedCommand']): CreateApiServerOptions['persistAcceptedCommand'] {
   return input ?? (process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test'
     ? async (envelope, command, run) => { await persistCommand(envelope.workspaceId, envelope.bookId, command); await persistRun(run, envelope.intent, envelope.requestedBy, envelope.idempotencyKey); }
@@ -23,11 +29,11 @@ export function createLoadPersistedCommand(input: CreateApiServerOptions['loadPe
 }
 
 export function createDispatchCommand(input: CreateApiServerOptions['dispatchCommand']): CreateApiServerOptions['dispatchCommand'] {
-  return input ?? (process.env['INNGEST_EVENT_KEY'] !== undefined ? async (envelope, run, canonicalVersion) => { const { dispatchCommandToInngest } = await import('../../../workflow/inngest-client'); await dispatchCommandToInngest(envelope, canonicalVersion, run.runId); } : undefined);
+  return input ?? (shouldDispatchToInngest() ? async (envelope, run, canonicalVersion) => { const { dispatchCommandToInngest } = await import('../../../workflow/inngest-client'); await dispatchCommandToInngest(envelope, canonicalVersion, run.runId); } : undefined);
 }
 
 export function createDispatchSyntheticReview(input: CreateApiServerOptions['dispatchSyntheticReview']): CreateApiServerOptions['dispatchSyntheticReview'] {
-  return input ?? (process.env['INNGEST_EVENT_KEY'] !== undefined ? async (review) => { const { dispatchSyntheticReviewToInngest } = await import('../../../workflow/inngest-client'); await dispatchSyntheticReviewToInngest(review); } : undefined);
+  return input ?? (shouldDispatchToInngest() ? async (review) => { const { dispatchSyntheticReviewToInngest } = await import('../../../workflow/inngest-client'); await dispatchSyntheticReviewToInngest(review); } : undefined);
 }
 
 export async function restorePersistedCommand(validation: ReturnType<typeof validateCommandEnvelope>, store: RuntimeStore, eventBus: RunEventBus, loader: CreateApiServerOptions['loadPersistedCommand']): Promise<boolean> {

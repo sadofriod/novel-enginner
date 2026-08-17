@@ -21,7 +21,14 @@ const registryMarkdown = readFileSync(join(workspaceRoot, 'state/capabilities/re
 const mcpConfig = JSON.parse(readFileSync(join(workspaceRoot, 'mcp.json'), 'utf8')) as { readonly servers?: Record<string, unknown> };
 validateCapabilityStartup(registryMarkdown, mcpConfig, workspaceRoot);
 const apiServer = createApiServer({ workspaceRoot });
-const inngestHandler = serveInngest({ client: inngest, functions: inngestFunctions });
+const inngestBaseUrl = process.env['INNGEST_BASE_URL']?.trim();
+const inngestSigningKey = process.env['INNGEST_SIGNING_KEY']?.trim();
+const inngestHandler = serveInngest({
+  client: inngest,
+  functions: inngestFunctions,
+  ...(inngestBaseUrl === undefined || inngestBaseUrl === '' ? {} : { baseUrl: inngestBaseUrl }),
+  ...(inngestSigningKey === undefined || inngestSigningKey === '' ? {} : { signingKey: inngestSigningKey }),
+});
 
 if (process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test') {
   const cleanupBootstrapSessions = async (): Promise<void> => {

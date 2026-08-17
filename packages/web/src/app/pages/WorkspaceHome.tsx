@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import type { BootstrapSession } from '@novel-enginner/services/bootstrap/types';
+import { Box, Button, List, ListItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import { useCreateBootstrapSessionMutation, useGetBootstrapConfigQuery, useListBootstrapSessionsQuery } from '../../control-api';
 
 export function WorkspaceHome() {
@@ -38,66 +39,95 @@ export function WorkspaceHome() {
   };
 
   return (
-    <main style={{ maxWidth: '960px', margin: '0 auto', padding: '32px 20px', display: 'grid', gap: '24px' }}>
-      <header>
-        <p style={{ color: '#607d8b', margin: 0 }}>Novel Enginner</p>
-        <h1 style={{ margin: '4px 0' }}>工作区</h1>
-        <p style={{ color: '#546e7a' }}>开始创作或把已有作品接入当前工作区。</p>
-      </header>
-      <section style={{ border: '1px solid #cfd8dc', padding: '16px', display: 'grid', gap: '12px' }}>
-        <h2 style={{ margin: 0, fontSize: '18px' }}>当前工作区</h2>
-        <p style={{ margin: 0 }}>已连接到配置中的作品和工作目录。创建会话时会自动使用它们。</p>
-        <p style={{ margin: 0, color: '#546e7a' }}>工作目录：{config?.workspaceRoot ?? '正在读取配置…'}</p>
-      </section>
-      <section style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-        <button type="button" onClick={() => { setSelectedPath('new-book'); setMessage(undefined); }}>新建作品</button>
-        <button type="button" onClick={() => { setSelectedPath('import'); setMessage(undefined); }}>导入已有作品</button>
-        <Link to="/app" style={{ color: '#1565c0' }}>书籍控制台</Link>
-      </section>
+    <Box component="main" sx={{ maxWidth: 960, mx: 'auto', p: '32px 20px', display: 'grid', gap: 3 }}>
+      <Box component="header" sx={{ display: 'grid', gap: 0.5 }}>
+        <Typography variant="overline" color="text.secondary">
+          Novel Enginner
+        </Typography>
+        <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
+          工作区
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          开始创作或把已有作品接入当前工作区。
+        </Typography>
+      </Box>
+      <Paper variant="outlined" sx={{ p: 2, display: 'grid', gap: 1.5 }}>
+        <Typography variant="h6">当前工作区</Typography>
+        <Typography variant="body2">已连接到配置中的作品和工作目录。创建会话时会自动使用它们。</Typography>
+        <Typography variant="body2" color="text.secondary">
+          工作目录：{config?.workspaceRoot ?? '正在读取配置…'}
+        </Typography>
+      </Paper>
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+        <Button variant="outlined" onClick={() => { setSelectedPath('new-book'); setMessage(undefined); }}>
+          新建作品
+        </Button>
+        <Button variant="outlined" onClick={() => { setSelectedPath('import'); setMessage(undefined); }}>
+          导入已有作品
+        </Button>
+        <Button component={Link} to="/workspace" variant="outlined" color="primary">
+          进入已有工作区
+        </Button>
+      </Stack>
       {selectedPath === undefined ? null : (
-        <section style={{ border: '1px solid #cfd8dc', padding: '16px', display: 'grid', gap: '12px' }}>
-          <h2 style={{ margin: 0, fontSize: '18px' }}>{selectedPath === 'new-book' ? '新建作品向导' : '导入作品向导'}</h2>
-          <p style={{ margin: 0 }}>
+        <Paper variant="outlined" sx={{ p: 2, display: 'grid', gap: 1.5 }}>
+          <Typography variant="h6">{selectedPath === 'new-book' ? '新建作品向导' : '导入作品向导'}</Typography>
+          <Typography variant="body2">
             {selectedPath === 'new-book'
               ? '先给作品取一个名字，然后按阶段补充灵感、设定和大纲。每一步都可以保存后继续。'
               : '先提供已有作品所在的目录，系统会先扫描并展示导入预览，确认后才会写入当前工作区。'}
-          </p>
+          </Typography>
           {selectedPath === 'new-book' ? (
-            <label>
-              作品名称（可稍后补充）
-              <input aria-label="作品名称" value={bookName} onChange={(event) => setBookName(event.target.value)} style={{ display: 'block', width: '100%', marginTop: '4px' }} />
-            </label>
+            <TextField
+              label="作品名称（可稍后补充）"
+              aria-label="作品名称"
+              size="small"
+              value={bookName}
+              onChange={(event) => setBookName(event.target.value)}
+              sx={{ width: '100%' }}
+            />
           ) : (
-            <label>
-              已有作品目录
-              <input aria-label="已有作品目录" value={sourceRoot} onChange={(event) => setSourceRoot(event.target.value)} placeholder="例如：/Users/me/Documents/my-novel" style={{ display: 'block', width: '100%', marginTop: '4px' }} />
-            </label>
+            <TextField
+              label="已有作品目录"
+              aria-label="已有作品目录"
+              size="small"
+              value={sourceRoot}
+              onChange={(event) => setSourceRoot(event.target.value)}
+              placeholder="例如：/Users/me/Documents/my-novel"
+              sx={{ width: '100%' }}
+            />
           )}
-          <button type="button" onClick={() => { void startSession(); }} disabled={config === undefined || isCreating}>
-            {selectedPath === 'new-book' ? '开始新建' : '开始导入'}
-          </button>
-          {message === undefined ? null : <p role="status" style={{ margin: 0 }}>{message}</p>}
-        </section>
+          <Box>
+            <Button variant="contained" onClick={() => { void startSession(); }} disabled={config === undefined || isCreating}>
+              {selectedPath === 'new-book' ? '开始新建' : '开始导入'}
+            </Button>
+          </Box>
+          {message === undefined ? null : <Typography role="status" variant="body2">{message}</Typography>}
+        </Paper>
       )}
-      <section>
-        <h2 style={{ fontSize: '18px' }}>可恢复的初始化会话</h2>
-        {sessions.length === 0 ? <p>暂无可恢复会话。</p> : <SessionList sessions={sessions} />}
-      </section>
-    </main>
+      <Box sx={{ display: 'grid', gap: 1 }}>
+        <Typography variant="h6">可恢复的初始化会话</Typography>
+        {sessions.length === 0 ? <Typography variant="body2" color="text.secondary">暂无可恢复会话。</Typography> : <SessionList sessions={sessions} />}
+      </Box>
+    </Box>
   );
 }
 
 function SessionList({ sessions }: { readonly sessions: readonly BootstrapSession[] }) {
   return (
-    <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: '8px' }}>
+    <List disablePadding sx={{ display: 'grid', gap: 1 }}>
       {sessions.map((session) => (
-        <li key={session.id} style={{ border: '1px solid #cfd8dc', padding: '12px' }}>
-          <Link to={`/bootstrap/${encodeURIComponent(session.id)}`} style={{ color: '#1565c0' }}>
-            {session.bookName ?? session.id}
-          </Link>
-          <small style={{ display: 'block', color: '#546e7a' }}>{session.currentStage} · {session.status}</small>
-        </li>
+        <ListItem key={session.id} disablePadding>
+          <Paper variant="outlined" sx={{ width: '100%', p: 1.5, display: 'grid', gap: 0.5 }}>
+            <Link to={`/bootstrap/${encodeURIComponent(session.id)}`} style={{ color: '#1565c0', textDecoration: 'none' }}>
+              {session.bookName ?? session.id}
+            </Link>
+            <Typography variant="caption" color="text.secondary">
+              {session.currentStage} · {session.status}
+            </Typography>
+          </Paper>
+        </ListItem>
       ))}
-    </ul>
+    </List>
   );
 }

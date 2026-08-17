@@ -1,26 +1,16 @@
 import { expect, test } from '@playwright/test';
 
-test('author can review and approve an artifact from the web console', async ({ page }) => {
-  const sseRequest = page.waitForRequest((request) => request.url().endsWith('/runs/run-seed-001/stream'));
-  await page.goto('/app');
-  await sseRequest;
+test('author can open the unified workbench and re-sync the workspace', async ({ page }) => {
+  await page.goto('/workspace');
 
-  await expect(page.getByRole('heading', { name: 'Web 控制台' })).toBeVisible();
-  await expect(page.getByText('Proposal 差异视图')).toBeVisible();
-  await expect(page.getByText('关联状态变更（原子提交）')).toBeVisible();
-  await expect(page.getByText('Reviewer 结果')).toBeVisible();
-  await expect(page.getByText('剧情图谱 / 派生状态')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '书目录' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '书目录' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: '工作台工具' })).toBeVisible();
+  await expect(page.getByText('进入已有工作区')).toBeVisible();
 
   const syncResponse = page.waitForResponse((response) => response.url().endsWith('/sync/re-sync-state') && response.request().method() === 'POST');
   await page.getByRole('button', { name: '同步工作区' }).click();
   await expect((await syncResponse).status()).toBe(202);
-  await expect(page.getByRole('heading', { name: '命令回执' })).toBeVisible();
-
-  await page.getByLabel(/短文本微修/).fill('修正一个短标题');
-  const commandResponse = page.waitForResponse((response) => response.url().endsWith('/commands') && response.request().method() === 'POST');
-  await page.getByRole('button', { name: 'approve', exact: true }).click();
-  await expect((await commandResponse).status()).toBe(202);
-  await expect(page.locator('body')).toContainText('修正一个短标题');
 });
 
 test('author can create, recover, and advance a new-book bootstrap session', async ({ page }) => {

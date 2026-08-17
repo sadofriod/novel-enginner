@@ -24,6 +24,9 @@ import { createRunHandlers } from './handlers/runs';
 import { createSyntheticReviewHandlers } from './handlers/synthetic-reviews';
 import { createSyncHandlers } from './handlers/sync';
 import { createWebCommandHandlers } from './handlers/web-commands';
+import { createWorkspaceHandlers } from './handlers/workspace';
+import { createGraphHandlers } from './handlers/graph';
+import { createSearchHandlers } from './handlers/search';
 
 export function createApiServerRoutes(
   options: CreateApiServerOptions,
@@ -58,6 +61,9 @@ export function createApiServerRoutes(
     handlePostCommand: commandHandlers.handlePostCommand,
     handleSyncCommand: syncHandlers.handleSyncCommand,
   });
+  const workspaceHandlers = createWorkspaceHandlers(deps);
+  const graphHandlers = createGraphHandlers(deps);
+  const searchHandlers = createSearchHandlers(deps);
 
   const api: RouteApi = {
     handleRoot: redirectHandlers.handleRoot,
@@ -76,7 +82,10 @@ export function createApiServerRoutes(
     handleGetRun: runHandlers.handleGetRun,
     handleGetArtifact: artifactHandlers.handleGetArtifact,
     handleGetOverrideAudit: overrideAuditHandlers.handleGetOverrideAudit,
-    handleRunStream: runHandlers.handleRunStream,
+    handleGetWorkspaceTree: workspaceHandlers.handleGetWorkspaceTree,
+    handleGetWorkspaceEntity: workspaceHandlers.handleGetWorkspaceEntity,
+    handleGetGraph: graphHandlers.handleGetGraph,
+    handleSearch: searchHandlers.handleSearch,
     handleSyncCommand: syncHandlers.handleSyncCommand,
     handleSyntheticReviewOutcome: syntheticReviewHandlers.handleSyntheticReviewOutcome,
   };

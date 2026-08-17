@@ -23,9 +23,3 @@ export function readSyncBody(request: Request): Promise<Record<string, unknown>>
 export function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
-
-export function formatSseEvent(event: { readonly type: string; readonly emittedAt: string; readonly data?: Record<string, unknown> }): string {
-  const payload = JSON.stringify({ emittedAt: event.emittedAt, ...event.data });
-  const idLine = 'id' in event && typeof event.id === 'number' ? `id: ${event.id}\n` : '';
-  return `${idLine}event: ${event.type}\ndata: ${payload}\n\n`;
-}

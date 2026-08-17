@@ -1,4 +1,5 @@
 import type { ArtifactSummary } from '@novel-enginner/services/runtime/store';
+import { Chip, List, ListItem, ListItemButton, ListItemText, Typography } from '@mui/material';
 import { sortApprovalQueue } from '../queue-priority';
 
 export interface ApprovalQueueProps {
@@ -11,7 +12,7 @@ export function artifactKey(artifactType: string, targetId: string): string {
   return `${artifactType}::${targetId}`;
 }
 
-const STATUS_STYLES: Record<string, { background: string; color: string }> = {
+const STATUS_COLORS: Record<string, { background: string; color: string }> = {
   'commit-blocked': { background: '#ffebee', color: '#c62828' },
   'waiting-sync':   { background: '#fff8e1', color: '#f57f17' },
   approved:         { background: '#e8f5e9', color: '#2e7d32' },
@@ -21,21 +22,13 @@ const STATUS_STYLES: Record<string, { background: string; color: string }> = {
 const DEFAULT_STATUS_STYLE = { background: '#f5f5f5', color: '#616161' };
 
 function StatusChip({ status }: { readonly status: string }) {
-  const style = STATUS_STYLES[status] ?? DEFAULT_STATUS_STYLE;
+  const style = STATUS_COLORS[status] ?? DEFAULT_STATUS_STYLE;
   return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '1px 8px',
-        borderRadius: '4px',
-        fontSize: '11px',
-        fontWeight: 600,
-        background: style.background,
-        color: style.color,
-      }}
-    >
-      {status}
-    </span>
+    <Chip
+      size="small"
+      label={status}
+      sx={{ fontSize: 11, fontWeight: 600, background: style.background, color: style.color }}
+    />
   );
 }
 
@@ -48,46 +41,32 @@ export function ApprovalQueue({ artifacts, selectedKey, onSelect }: ApprovalQueu
 
   if (ordered.length === 0) {
     return (
-      <p style={{ fontSize: '13px', color: '#9e9e9e', margin: '8px 0' }}>
+      <Typography variant="body2" color="text.secondary" sx={{ my: 1 }}>
         暂无待处理 proposal。
-      </p>
+      </Typography>
     );
   }
 
   return (
-    <ul aria-label="审批队列" style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '6px' }}>
+    <List aria-label="审批队列" dense disablePadding sx={{ display: 'grid', gap: 0.75 }}>
       {ordered.map((artifact) => {
         const key = artifactKey(artifact.artifactType, artifact.targetId);
         const isSelected = key === selectedKey;
         const status = artifact.proposalStatus ?? 'no-active-proposal';
         return (
-          <li key={key}>
-            <button
-              type="button"
+          <ListItem key={key} disablePadding>
+            <ListItemButton
+              selected={isSelected}
               aria-pressed={isSelected}
               onClick={() => onSelect(artifact)}
-              style={{
-                width: '100%',
-                textAlign: 'left',
-                padding: '10px 12px',
-                border: `1px solid ${isSelected ? '#1976d2' : '#e0e0e0'}`,
-                borderRadius: '4px',
-                background: isSelected ? '#e3f2fd' : '#fff',
-                cursor: 'pointer',
-                display: 'grid',
-                gap: '4px',
-                transition: 'border-color 0.15s, background 0.15s',
-              }}
+              sx={{ border: '1px solid', borderColor: isSelected ? 'primary.main' : 'divider', borderRadius: 1, display: 'grid', gap: 0.5, alignItems: 'start' }}
             >
-              <span style={{ fontSize: '13px', fontWeight: 600, color: '#212121' }}>
-                {artifact.artifactType}
-              </span>
-              <span style={{ fontSize: '12px', color: '#616161' }}>{artifact.targetId}</span>
+              <ListItemText primary={artifact.artifactType} secondary={artifact.targetId} />
               <StatusChip status={status} />
-            </button>
-          </li>
+            </ListItemButton>
+          </ListItem>
         );
       })}
-    </ul>
+    </List>
   );
 }

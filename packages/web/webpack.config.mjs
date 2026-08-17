@@ -59,6 +59,7 @@ export default {
         context: ['/api'],
         target: process.env['SERVICE_URL'] ?? 'http://localhost:3000',
         pathRewrite: { '^/api': '' },
+        ws: true,
       },
     ],
   },

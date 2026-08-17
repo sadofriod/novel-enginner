@@ -14,7 +14,10 @@ import { postCommandsRoute } from './commands/post';
 import { getRootRoute } from './root/get';
 import { getRunsRoute } from './runs/get';
 import { getRunRoute } from './runs/[runId]/get';
-import { getRunStreamRoute } from './runs/[runId]/stream/get';
+import { getWorkspaceTreeRoute } from './workspace/tree/get';
+import { getWorkspaceEntityRoute } from './workspace/entity/[kind]/[id]/get';
+import { getGraphRoute } from './graph/get';
+import { getSearchRoute } from './search/get';
 import { postRebuildGraphRoute } from './sync/rebuild-graph/post';
 import { postReSyncStateRoute } from './sync/re-sync-state/post';
 import { postSyntheticReviewOutcomeRoute } from './review/synthetic-outcome/post';
@@ -29,7 +32,6 @@ const ROUTES: readonly RuntimeRouteDefinition[] = [
   getCommandRoute,
   getRunsRoute,
   getRunRoute,
-  getRunStreamRoute,
   getArtifactsRoute,
   getArtifactRoute,
   getOverrideAuditRoute,
@@ -38,6 +40,10 @@ const ROUTES: readonly RuntimeRouteDefinition[] = [
   getBootstrapSessionRoute,
   getBootstrapSessionRevisionsRoute,
   getBootstrapSessionEvidenceRoute,
+  getWorkspaceTreeRoute,
+  getWorkspaceEntityRoute,
+  getGraphRoute,
+  getSearchRoute,
   postRebuildGraphRoute,
   postReSyncStateRoute,
   postSyntheticReviewOutcomeRoute,

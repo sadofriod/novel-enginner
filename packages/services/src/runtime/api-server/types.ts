@@ -3,6 +3,7 @@ import type { WorkspaceValidity } from '../../domain/values';
 import type { BootstrapRevision, BootstrapSession } from '../../bootstrap/types';
 import type { SyntheticCommit } from '../../workspace/session';
 import type { RunSnapshotRef } from '../../workflow/run-drift';
+import type { SearchWorkspace } from '../search-contract';
 import type { CanonicalDraft, CommandRecord, RunRecord } from '../store';
 
 export interface CreateApiServerOptions {
@@ -31,6 +32,7 @@ export interface CreateApiServerOptions {
   readonly persistBootstrapState?: (session: BootstrapSession, revision?: BootstrapRevision) => Promise<void>;
   readonly marketResearchPort?: import('../../bootstrap/research/market-research-port').MarketResearchPort;
   readonly readCanonicalFiles?: (workspaceRoot: string) => Promise<readonly import('../../workspace/sync-engine').WorkspaceFileInput[]>;
+  readonly searchWorkspace?: SearchWorkspace;
   readonly reSyncStateOptions?: {
     readonly getActiveRuns: () => readonly RunSnapshotRef[];
     readonly onRunsAborted?: (runIds: readonly string[]) => void;

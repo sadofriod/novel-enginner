@@ -18,6 +18,7 @@ type Listener = (event: RunEvent) => void;
 export class RunEventBus {
   private readonly logger = createChildLogger('event-bus');
   private readonly listenersByRun = new Map<string, Set<Listener>>();
+  private readonly globalListeners = new Set<Listener>();
   private readonly historyByRun = new Map<string, RunEvent[]>();
   private readonly nextEventIdByRun = new Map<string, number>();
   private readonly maxHistorySize: number;
@@ -41,6 +42,21 @@ export class RunEventBus {
     }, 'Event published');
 
     this.broadcastToListeners(event.runId, eventWithId);
+    this.broadcastToGlobalListeners(eventWithId);
+  }
+
+  private broadcastToGlobalListeners(event: RunEvent): void {
+    for (const listener of this.globalListeners) {
+      try {
+        listener(event);
+      } catch (error) {
+        this.logger.error({
+          runId: event.runId,
+          eventId: event.id,
+          error: error instanceof Error ? error.message : String(error),
+        }, 'Error invoking global event listener');
+      }
+    }
   }
 
   private broadcastToListeners(runId: string, event: RunEvent): void {
@@ -86,6 +102,16 @@ export class RunEventBus {
     return () => {
       listeners.delete(listener);
       this.logger.debug({ runId, totalListeners: listeners.size }, 'Listener unsubscribed');
+    };
+  }
+
+  /** Registers a workspace-wide listener that receives every published event. */
+  subscribeAll(listener: Listener): () => void {
+    this.globalListeners.add(listener);
+    this.logger.debug({ totalListeners: this.globalListeners.size }, 'New global listener subscribed');
+    return () => {
+      this.globalListeners.delete(listener);
+      this.logger.debug({ totalListeners: this.globalListeners.size }, 'Global listener unsubscribed');
     };
   }
 

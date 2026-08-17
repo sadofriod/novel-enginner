@@ -6,10 +6,13 @@ import { serve as serveInngest } from 'inngest/bun';
 import { createApiServer } from './api-server';
 import { createChildLogger } from '../common/logger';
 import { seedWebConsoleFixture } from './seed-web-fixtures';
+import { createWorkspaceEventRelay } from './ws-relay';
 import { readCanonicalWorkspaceFiles, startWorkspaceFileWatcher } from '../workspace/file-watcher';
 import { inngest, inngestFunctions } from '../workflow';
 import { coordinateWorkspaceSync } from './workspace-sync-coordinator';
 import { validateCapabilityStartup } from './capability-startup';
+
+import type { WorkspaceEventRelay } from './ws-relay';
 
 const logger = createChildLogger('server');
 
@@ -139,13 +142,41 @@ if (process.env['NOVEL_E2E_FIXTURE'] === '1') {
   logger.info('E2E test fixtures loaded');
 }
 
+interface WsRelayData {
+  relay?: WorkspaceEventRelay;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _server = Bun.serve({
+const _server = Bun.serve<WsRelayData>({
   port,
   idleTimeout: 0,
-  fetch: (request) => {
-    const pathname = new URL(request.url).pathname;
+  fetch: (request, server) => {
+    const url = new URL(request.url);
+    if (url.pathname === '/ws' && request.headers.get('upgrade') === 'websocket') {
+      if (server.upgrade(request, { data: {} })) {
+        return undefined;
+      }
+      return new Response('WebSocket upgrade failed', { status: 400 });
+    }
+    const pathname = url.pathname;
     return pathname === '/api/inngest' ? inngestHandler(request) : apiServer.fetch(request);
+  },
+  websocket: {
+    open(ws) {
+      logger.info('Workspace WebSocket connected');
+      const relay = createWorkspaceEventRelay({
+        eventBus: apiServer.eventBus,
+        send: (frame) => ws.send(frame),
+      });
+      ws.data.relay = relay;
+    },
+    close(ws) {
+      ws.data.relay?.close();
+      logger.info('Workspace WebSocket disconnected');
+    },
+    message() {
+      // Workspace events are server-pushed only.
+    },
   },
 });
 

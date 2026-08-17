@@ -6,7 +6,15 @@ import type { ArtifactSummary, CommandRecord, RunRecord } from '@novel-enginner/
 import type { CommandResult } from '@novel-enginner/services/runtime/command-handler';
 import type { BootstrapEvidence, BootstrapRevision, BootstrapSession } from '@novel-enginner/services/bootstrap/types';
 import type { OverrideAudit } from '@novel-enginner/services/domain/schema';
-import type { BootstrapConfig, CommandInput, SyncCommandInput } from './api-types';
+import type {
+  BootstrapConfig,
+  CommandInput,
+  SearchResponse,
+  SyncCommandInput,
+  WorkspaceEntityDetail,
+  WorkspaceGraph,
+  WorkspaceTree,
+} from './api-types';
 
 type CreateBootstrapSessionInput = {
   readonly path: 'new-book' | 'import';
@@ -19,12 +27,12 @@ type CreateBootstrapSessionResult = {
   readonly sessionId: string;
 };
 
-type ApiTags = 'Artifact' | 'Run' | 'BootstrapSession' | 'BootstrapConfig' | 'Command';
+type ApiTags = 'Artifact' | 'Run' | 'BootstrapSession' | 'BootstrapConfig' | 'Command' | 'Workspace';
 
 export const controlApi = createApi({
   reducerPath: 'controlApi',
   baseQuery: fetchBaseQuery({ baseUrl: '/api' }),
-  tagTypes: ['Artifact', 'Run', 'BootstrapSession', 'BootstrapConfig', 'Command'] satisfies readonly ApiTags[],
+  tagTypes: ['Artifact', 'Run', 'BootstrapSession', 'BootstrapConfig', 'Command', 'Workspace'] satisfies readonly ApiTags[],
   endpoints: (builder) => ({
     listArtifacts: builder.query<readonly ArtifactSummary[], void>({
       query: () => '/artifacts',
@@ -98,6 +106,22 @@ export const controlApi = createApi({
       },
       invalidatesTags: ['BootstrapSession', 'BootstrapConfig'],
     }),
+    getWorkspaceTree: builder.query<WorkspaceTree, void>({
+      query: () => '/workspace/tree',
+      providesTags: [{ type: 'Workspace', id: 'TREE' }],
+    }),
+    getWorkspaceEntity: builder.query<WorkspaceEntityDetail | undefined, { readonly kind: string; readonly id: string }>({
+      query: ({ kind, id }) => `/workspace/entity/${kind}/${id}`,
+      providesTags: (_result, _error, arg) => [{ type: 'Workspace', id: `ENTITY:${arg.kind}:${arg.id}` }],
+    }),
+    getWorkspaceGraph: builder.query<WorkspaceGraph, void>({
+      query: () => '/graph',
+      providesTags: [{ type: 'Workspace', id: 'GRAPH' }],
+    }),
+    searchWorkspace: builder.query<SearchResponse, string>({
+      query: (query) => `/search?q=${encodeURIComponent(query)}`,
+      providesTags: () => [],
+    }),
   }),
 });
 
@@ -116,4 +140,8 @@ export const {
   useSubmitCommandMutation,
   useSubmitSyncMutation,
   useCreateBootstrapSessionMutation,
+  useGetWorkspaceTreeQuery,
+  useGetWorkspaceEntityQuery,
+  useGetWorkspaceGraphQuery,
+  useSearchWorkspaceQuery,
 } = controlApi;

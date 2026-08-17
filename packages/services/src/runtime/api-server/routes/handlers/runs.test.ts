@@ -28,14 +28,4 @@ describe('run handlers', () => {
 
     expect(handleGetRun('run-unknown').status).toBe(404);
   });
-
-  test('handleRunStream establishes an SSE stream', () => {
-    const { handleRunStream } = createRunHandlers(deps());
-    const request = new Request('http://local.test/runs/run-1/stream');
-
-    const response = handleRunStream('run-1', request);
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toBe('text/event-stream');
-  });
 });

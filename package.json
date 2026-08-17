@@ -30,6 +30,7 @@
     "@modelcontextprotocol/server-filesystem": "2026.7.10",
     "@mui/icons-material": "^9.3.1",
     "@mui/material": "^9.3.1",
+    "@mui/x-tree-view": "^9.11.0",
     "@prisma/client": "6.19.3",
     "@reduxjs/toolkit": "^2.12.0",
     "@types/uuid": "^11.0.0",

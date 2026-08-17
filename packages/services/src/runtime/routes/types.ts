@@ -17,7 +17,10 @@ export interface RouteApi {
   handleGetRun(runId: string): Response;
   handleGetArtifact(artifactType: string, targetId: string): Response;
   handleGetOverrideAudit(overrideAuditId: string): Promise<Response>;
-  handleRunStream(runId: string, request: Request): Response;
+  handleGetWorkspaceTree(): Promise<Response>;
+  handleGetWorkspaceEntity(kind: string, id: string): Promise<Response>;
+  handleGetGraph(): Response;
+  handleSearch(request: Request): Promise<Response>;
   handleSyncCommand(syncIntent: string, request: Request): Promise<Response>;
   handleSyntheticReviewOutcome(request: Request): Promise<Response>;
 }

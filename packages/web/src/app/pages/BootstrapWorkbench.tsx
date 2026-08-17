@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 
+import { Box, Button, Paper, Stack, TextField, Typography } from '@mui/material';
 import {
   useGetBootstrapConfigQuery,
   useGetBootstrapSessionQuery,
@@ -27,10 +28,22 @@ export function BootstrapWorkbench() {
   const [message, setMessage] = useState<string>();
 
   if (sessionId === 'new-book' || sessionId === 'import') {
-    return <main style={{ padding: '32px' }}><h1>{sessionId === 'new-book' ? '新建作品' : '导入作品'}</h1><p>初始化会话将在提交第一项工作区信息后创建。</p><Link to="/">返回工作区</Link></main>;
+    return (
+      <Box component="main" sx={{ p: 4, display: 'grid', gap: 1 }}>
+        <Typography variant="h5">{sessionId === 'new-book' ? '新建作品' : '导入作品'}</Typography>
+        <Typography variant="body2" color="text.secondary">初始化会话将在提交第一项工作区信息后创建。</Typography>
+        <Link to="/" style={{ color: '#1565c0' }}>返回工作区</Link>
+      </Box>
+    );
   }
   if (session === undefined) {
-    return <main style={{ padding: '32px' }}><h1>Bootstrap 工作台</h1><p>正在读取会话，或会话不存在。</p><Link to="/">返回工作区</Link></main>;
+    return (
+      <Box component="main" sx={{ p: 4, display: 'grid', gap: 1 }}>
+        <Typography variant="h5">Bootstrap 工作台</Typography>
+        <Typography variant="body2" color="text.secondary">正在读取会话，或会话不存在。</Typography>
+        <Link to="/" style={{ color: '#1565c0' }}>返回工作区</Link>
+      </Box>
+    );
   }
   const submitSessionCommand = async (intent: 'submit-dialogue-round' | 'submit-market-research' | 'scan-import-directory' | 'confirm-import' | 'continue-bootstrap-session' | 'discard-bootstrap-session'): Promise<void> => {
     if (session === undefined) {
@@ -82,51 +95,56 @@ export function BootstrapWorkbench() {
     submitSessionCommand('confirm-import');
   };
   return (
-    <main style={{ maxWidth: '960px', margin: '0 auto', padding: '32px 20px', display: 'grid', gap: '20px' }}>
+    <Box component="main" sx={{ maxWidth: 960, mx: 'auto', p: '32px 20px', display: 'grid', gap: 2.5 }}>
       <Link to="/" style={{ color: '#1565c0' }}>返回工作区</Link>
-      <header>
-        <h1>{session.bookName ?? 'Bootstrap 工作台'}</h1>
-        <p>按当前阶段完成下面的任务，保存后再继续。</p>
-        <p>当前阶段：{session.currentStage}</p>
-      </header>
-      <section>
-        <h2>阶段修订</h2>
-        <p>{revisions.length} 条不可变记录</p>
-        <textarea
+      <Box component="header" sx={{ display: 'grid', gap: 0.5 }}>
+        <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>{session.bookName ?? 'Bootstrap 工作台'}</Typography>
+        <Typography variant="body2" color="text.secondary">按当前阶段完成下面的任务，保存后再继续。</Typography>
+        <Typography variant="body2" color="text.secondary">当前阶段：{session.currentStage}</Typography>
+      </Box>
+      <Paper variant="outlined" sx={{ p: 2, display: 'grid', gap: 1.5 }}>
+        <Typography variant="h6">阶段修订</Typography>
+        <Typography variant="body2" color="text.secondary">{revisions.length} 条不可变记录</Typography>
+        <TextField
           aria-label="阶段输入"
+          label="阶段输入"
+          multiline
+          minRows={4}
           value={summary}
           onChange={(event) => setSummary(event.target.value)}
-          style={{ display: 'block', width: '100%', minHeight: '96px', marginTop: '10px' }}
         />
-        <button type="button" onClick={submitRound} style={{ marginTop: '8px' }}>保存本轮</button>
-      </section>
+        <Box>
+          <Button variant="contained" onClick={submitRound}>保存本轮</Button>
+        </Box>
+      </Paper>
       {session.currentStage === 'import-scan' ? (
-        <section>
-          <h2>扫描作品目录</h2>
-          <p>系统会识别作品简介、设定、卷纲和章节，并生成一份待确认的导入预览。</p>
-          <button type="button" onClick={() => submitSessionCommand('scan-import-directory')} style={{ marginTop: '8px' }}>开始扫描</button>
-        </section>
+        <Paper variant="outlined" sx={{ p: 2, display: 'grid', gap: 1.5 }}>
+          <Typography variant="h6">扫描作品目录</Typography>
+          <Typography variant="body2" color="text.secondary">系统会识别作品简介、设定、卷纲和章节，并生成一份待确认的导入预览。</Typography>
+          <Box>
+            <Button variant="contained" onClick={() => submitSessionCommand('scan-import-directory')}>开始扫描</Button>
+          </Box>
+        </Paper>
       ) : null}
       {session.currentStage === 'import-mapping' ? (
-        <section>
-          <h2>确认导入</h2>
-          <label style={{ display: 'block', marginBottom: '8px' }}>
-            要导入的作品目录
-            <input aria-label="原始目录" value={sourceRoot} onChange={(event) => setSourceRoot(event.target.value)} placeholder="例如：/Users/me/Documents/my-novel" style={{ display: 'block', width: '100%' }} />
-          </label>
-          <label style={{ display: 'block', marginBottom: '8px' }}>
-            导入到当前工作区
-            <input aria-label="Canonical 工作区目录" value={targetRoot || config?.workspaceRoot || ''} onChange={(event) => setTargetRoot(event.target.value)} readOnly style={{ display: 'block', width: '100%' }} />
-          </label>
-          <button type="button" onClick={confirmImport} style={{ marginTop: '8px' }}>确认导入</button>
-        </section>
+        <Paper variant="outlined" sx={{ p: 2, display: 'grid', gap: 1.5 }}>
+          <Typography variant="h6">确认导入</Typography>
+          <TextField label="要导入的作品目录" aria-label="原始目录" size="small" value={sourceRoot} onChange={(event) => setSourceRoot(event.target.value)} placeholder="例如：/Users/me/Documents/my-novel" />
+          <TextField label="导入到当前工作区" aria-label="Canonical 工作区目录" size="small" value={targetRoot || config?.workspaceRoot || ''} onChange={(event) => setTargetRoot(event.target.value)} slotProps={{ input: { readOnly: true } }} />
+          <Box>
+            <Button variant="contained" onClick={confirmImport}>确认导入</Button>
+          </Box>
+        </Paper>
       ) : null}
-      <section style={{ display: 'flex', gap: '8px' }}>
-        <button type="button" onClick={() => submitSessionCommand('continue-bootstrap-session')}>继续下一阶段</button>
-        <button type="button" onClick={() => submitSessionCommand('discard-bootstrap-session')}>放弃会话</button>
-      </section>
-      {message === undefined ? null : <p role="status">{message}</p>}
-      <section><h2>研究证据</h2><p>{evidence.length} 个来源</p></section>
-    </main>
+      <Stack direction="row" spacing={1}>
+        <Button variant="outlined" onClick={() => submitSessionCommand('continue-bootstrap-session')}>继续下一阶段</Button>
+        <Button variant="outlined" color="error" onClick={() => submitSessionCommand('discard-bootstrap-session')}>放弃会话</Button>
+      </Stack>
+      {message === undefined ? null : <Typography role="status" variant="body2">{message}</Typography>}
+      <Paper variant="outlined" sx={{ p: 2, display: 'grid', gap: 1 }}>
+        <Typography variant="h6">研究证据</Typography>
+        <Typography variant="body2" color="text.secondary">{evidence.length} 个来源</Typography>
+      </Paper>
+    </Box>
   );
 }

@@ -1,15 +1,13 @@
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 
-import { ControlConsoleContainer } from './ControlConsoleContainer';
-import { ArtifactAuthoringPage } from './pages/ArtifactAuthoringPage';
 import { BootstrapWorkbench } from './pages/BootstrapWorkbench';
 import { WorkspaceHome } from './pages/WorkspaceHome';
+import { WorkspaceWorkbench } from './pages/workspace-workbench';
 
 const router = createBrowserRouter([
   { path: '/', element: <WorkspaceHome /> },
   { path: '/bootstrap/:sessionId', element: <BootstrapWorkbench /> },
-  { path: '/app', element: <ControlConsoleContainer /> },
-  { path: '/app/new/:artifactType', element: <ArtifactAuthoringPage /> },
+  { path: '/workspace', element: <WorkspaceWorkbench /> },
 ]);
 
 export function WebRouter() {

@@ -5,16 +5,11 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ArtifactSummary, RunRecord } from '@novel-enginner/services/runtime/store';
 import type { CommandAcceptedResponse, CommandResult } from '@novel-enginner/services/runtime/command-handler';
 import type { CommandRecord } from '@novel-enginner/services/runtime/store';
+import type { ApprovalAction } from './components/ArtifactDetail';
 import { ApiClient } from './api-client';
-import { GraphCanvas } from './app/components/GraphCanvas';
-import { DerivedGraphView } from './app/components/DerivedGraphView';
 import { ApprovalQueue } from './components/ApprovalQueue';
-import { ArtifactDetail, type ApprovalAction } from './components/ArtifactDetail';
-import { BundledDiffView } from './components/BundledDiffView';
-import { CommandOperationsPanel } from './components/CommandOperationsPanel';
-import { CommandReceiptPanel } from './components/CommandReceiptPanel';
-import { ProposalDiffView } from './components/ProposalDiffView';
-import { ReviewerResultView } from './components/ReviewerResultView';
+import { ControlConsoleMainPanel } from './components/ControlConsoleMainPanel';
+import { RunTracePanel } from './components/RunTracePanel';
 
 export interface ControlConsoleProps {
   readonly artifacts?: readonly ArtifactSummary[];
@@ -26,78 +21,6 @@ export interface ControlConsoleProps {
   readonly onSelectArtifact?: (artifact: ArtifactSummary) => void;
   readonly onAction?: (artifact: ArtifactSummary, action: ApprovalAction, note?: string) => void;
   readonly commandPanel?: ReactNode;
-}
-
-export interface RunTracePanelProps {
-  readonly runs?: readonly RunRecord[];
-  readonly selectedArtifact?: ArtifactSummary | undefined;
-}
-
-export function RunTracePanel({ runs = [], selectedArtifact }: RunTracePanelProps) {
-  const visibleRuns = useMemo(() => {
-    if (selectedArtifact === undefined) {
-      return runs;
-    }
-
-    return runs.filter(
-      (run) =>
-        run.artifactType === selectedArtifact.artifactType &&
-        run.targetId === selectedArtifact.targetId,
-    );
-  }, [runs, selectedArtifact]);
-
-  const STATUS_COLORS: Record<string, string> = {
-    running: '#1976d2',
-    completed: '#2e7d32',
-    failed: '#c62828',
-    aborted: '#f57f17',
-  };
-
-  return (
-    <section aria-label="运行追溯">
-      <h3 style={{ margin: '0 0 10px', fontSize: '14px', fontWeight: 700, color: '#212121' }}>运行追溯</h3>
-      {visibleRuns.length === 0 ? (
-        <p style={{ fontSize: '13px', color: '#9e9e9e', margin: 0 }}>暂无关联运行记录。</p>
-      ) : (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '6px' }}>
-          {visibleRuns.map((run) => (
-            <li
-              key={run.runId}
-              style={{
-                padding: '8px 10px',
-                border: '1px solid #e0e0e0',
-                borderRadius: '4px',
-                fontSize: '12px',
-                display: 'grid',
-                gap: '3px',
-              }}
-            >
-              <span style={{ fontWeight: 600, fontFamily: 'monospace', color: '#212121', wordBreak: 'break-all' }}>
-                {run.runId}
-              </span>
-              <span
-                style={{
-                  display: 'inline-block',
-                  padding: '1px 6px',
-                  borderRadius: '4px',
-                  background: '#f5f5f5',
-                  color: STATUS_COLORS[run.status] ?? '#616161',
-                  fontWeight: 600,
-                  fontSize: '11px',
-                  width: 'fit-content',
-                }}
-              >
-                {run.status}
-              </span>
-              {run.nextExpectedState !== undefined && (
-                <small style={{ color: '#9e9e9e' }}>{run.nextExpectedState}</small>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
 }
 
 export function ControlConsole({
@@ -315,51 +238,18 @@ export function ControlConsole({
         />
       </aside>
 
-      <main
-        style={{
-          display: 'grid',
-          gap: '12px',
-        }}
-      >
-        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#212121' }}>Web 控制台</h1>
-        {commandPanel ?? (apiClient === undefined ? null : (
-          <CommandOperationsPanel
-            apiClient={apiClient}
-            workspaceId={resolvedWorkspaceId}
-            bookId={resolvedBookId}
-            onCommandCompleted={handleCommandCompleted}
-          />
-        ))}
-        {lastCommand === undefined ? null : (
-          <CommandReceiptPanel result={lastCommand} command={lastCommandRecord} run={lastCommandRun} />
-        )}
-        {selected === undefined ? (
-          <p style={{ color: '#9e9e9e', fontSize: '14px' }}>暂无可审批工件。</p>
-        ) : (
-          <>
-            <ArtifactDetail artifact={selected} onAction={handleAction} pending={selected.proposalStatus === 'commit-blocked' || selected.proposalStatus === 'waiting-sync'} />
-            <ProposalDiffView
-              proposalId={selected.activeProposalId ?? 'proposal-missing'}
-              artifactType={selected.artifactType}
-              targetId={selected.targetId}
-              basedOnCanonicalVersion={selected.proposalDetail?.basedOnCanonicalVersion ?? 'unknown'}
-              diffs={selected.proposalDetail?.diffs ?? []}
-              entityVersionRefs={selected.proposalDetail?.entityVersionRefs}
-            />
-            <BundledDiffView
-              proposalId={selected.activeProposalId ?? 'proposal-missing'}
-              entries={selected.bundledDiff ?? []}
-            />
-            {selected.reviewerResult !== undefined && <ReviewerResultView result={selected.reviewerResult} />}
-            {selected.derivedGraph !== undefined ? (
-              <InteractiveDerivedGraph graph={selected.derivedGraph} />
-            ) : (
-              <DerivedGraphView graph={undefined} />
-            )}
-          </>
-        )}
-      </main>
-
+      <ControlConsoleMainPanel
+        selected={selected}
+        apiClient={apiClient}
+        workspaceId={resolvedWorkspaceId}
+        bookId={resolvedBookId}
+        lastCommand={lastCommand}
+        lastCommandRecord={lastCommandRecord}
+        lastCommandRun={lastCommandRun}
+        commandPanel={commandPanel}
+        onAction={handleAction}
+        onCommandCompleted={handleCommandCompleted}
+      />
       <aside
         style={{
           background: '#fff',
@@ -374,53 +264,5 @@ export function ControlConsole({
         />
       </aside>
     </div>
-  );
-}
-
-function InteractiveDerivedGraph({ graph }: { readonly graph: NonNullable<ArtifactSummary['derivedGraph']> }) {
-  const STATUS_STYLES: Record<string, { background: string; color: string; border: string }> = {
-    ready:      { background: '#e8f5e9', color: '#2e7d32', border: '#a5d6a7' },
-    stale:      { background: '#fff8e1', color: '#f57f17', border: '#ffe082' },
-    rebuilding: { background: '#e3f2fd', color: '#1565c0', border: '#90caf9' },
-  };
-  const statusStyle = STATUS_STYLES[graph.status] ?? { background: '#f5f5f5', color: '#616161', border: '#e0e0e0' };
-
-  return (
-    <section
-      aria-label="剧情图谱 / 派生状态"
-      style={{ border: '1px solid #e0e0e0', borderRadius: '4px', padding: '14px', background: '#fff', display: 'grid', gap: '12px' }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-        <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#212121' }}>剧情图谱 / 派生状态</h3>
-        <span
-          style={{
-            display: 'inline-block',
-            padding: '2px 10px',
-            borderRadius: '4px',
-            fontSize: '11px',
-            fontWeight: 600,
-            background: statusStyle.background,
-            color: statusStyle.color,
-            border: `1px solid ${statusStyle.border}`,
-          }}
-        >
-          {graph.status}
-        </span>
-        <span style={{ fontSize: '12px', color: '#9e9e9e' }}>
-          {graph.nodes.length} 个节点 / {graph.edges.length} 条边
-        </span>
-      </div>
-      {graph.nodes.length > 0 && (
-        <GraphCanvas graph={graph} height={420} />
-      )}
-      {graph.status === 'stale' && (
-        <div
-          role="status"
-          style={{ padding: '8px 12px', borderRadius: '4px', border: '1px solid #ffe082', background: '#fff8e1', fontSize: '12px', color: '#f57f17' }}
-        >
-          图谱快照尚未追平最新 canonical 版本，当前展示的节点/边可能不是最新状态。
-        </div>
-      )}
-    </section>
   );
 }

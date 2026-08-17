@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { reSyncState } from '../workspace/sync-engine';
-import { buildDerivedGraph } from './derive';
+import { buildDerivedGraph } from './derive/build';
 
 const BOOK = `---
 id: book-001

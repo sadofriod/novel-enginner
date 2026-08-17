@@ -18,7 +18,7 @@
 
 import type { SearchDocument } from './types';
 import { prisma } from '../persistence/client';
-import { buildDerivedGraph } from './derive';
+import { buildDerivedGraph } from './derive/build';
 import type { WorkspaceSnapshot } from '../workspace/sync-engine';
 import { EMBEDDING_DIMENSION, writeEmbedding } from './vector-search';
 

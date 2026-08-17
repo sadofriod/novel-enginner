@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 
-import { validateCapabilitiesOrThrow, type CapabilityReconciliationResult } from '../agent/capability-registry';
+import { validateCapabilitiesOrThrow, type CapabilityReconciliationResult } from '../agent/capabilities/validate';
 
 interface CapabilitySourcePaths {
   readonly skillFiles: readonly string[];

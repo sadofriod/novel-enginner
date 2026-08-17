@@ -3,11 +3,9 @@ import { describe, expect, test } from 'bun:test';
 import type { CommandEnvelope, Proposal } from '../domain';
 import { assembleReviewerResult } from '../agent/reviewer';
 import { handleHandEditedArtifact } from '../agent/synthetic-review';
-import {
-  discoverCapabilitiesFromAllSources,
-  parseCapabilityRegistry,
-  reconcileCapabilities,
-} from '../agent/capability-registry';
+import { discoverCapabilitiesFromAllSources } from '../agent/capabilities/discovery';
+import { parseCapabilityRegistry } from '../agent/capabilities/registry-parse';
+import { reconcileCapabilities } from '../agent/capabilities/reconcile';
 import { applyProposalCommand } from '../workflow/command-lifecycle';
 import { abortDriftedRuns } from '../workflow/run-drift';
 import { buildProposalRegistry, createProposal } from '../workflow/proposal-lifecycle';

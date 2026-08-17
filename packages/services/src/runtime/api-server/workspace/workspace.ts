@@ -1,7 +1,7 @@
 /* eslint-disable complexity */
 import type { WorkspaceValidity } from '../../../domain/values';
 import { abortDriftedRuns } from '../../../workflow/run-drift';
-import { buildDerivedGraph } from '../../../graph/derive';
+import { buildDerivedGraph } from '../../../graph/derive/build';
 import { handleHandEditedArtifact } from '../../../agent/synthetic-review';
 import { resolveLayoutRuleForPath } from '../../../workspace/layout';
 import type { WorkspaceFileInput } from '../../../workspace/sync-engine';

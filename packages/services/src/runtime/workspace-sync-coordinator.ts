@@ -1,7 +1,7 @@
 /* eslint-disable complexity */
 
 import { handleHandEditedArtifact } from '../agent/synthetic-review';
-import { buildDerivedGraph } from '../graph/derive';
+import { buildDerivedGraph } from '../graph/derive/build';
 import type { RunSnapshotRef } from '../workflow/run-drift';
 import { abortDriftedRuns } from '../workflow/run-drift';
 import { resolveLayoutRuleForPath } from '../workspace/layout';

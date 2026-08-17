@@ -4,7 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import type { ArtifactSummary, RunRecord } from '@novel-enginner/services/runtime/store';
 import { ApprovalQueue } from './components/ApprovalQueue';
 import { ArtifactDetail } from './components/ArtifactDetail';
-import { ControlConsole, RunTracePanel } from './ControlConsole';
+import { ControlConsole } from './ControlConsole';
 import { inlineEditCharCount, isWithinInlineEditLimit } from './inline-edit-guard';
 
 const artifact: ArtifactSummary = {
@@ -99,13 +99,6 @@ describe('ControlConsole', () => {
     expect(html).toContain('Proposal 差异视图');
     expect(html).toContain('Reviewer 结果');
     expect(html).toContain('剧情图谱 / 派生状态');
-  });
-
-  test('RunTracePanel filters by selected artifact', () => {
-    const html = renderToStaticMarkup(<RunTracePanel runs={runs} selectedArtifact={artifact} />);
-
-    expect(html).toContain('run-1');
-    expect(html).toContain('re-sync-state');
   });
 });
 

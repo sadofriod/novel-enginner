@@ -1,8 +1,8 @@
 # Novel Enginner
 
-Novel Enginner 是一个以 Markdown canonical state 为基础的小说创作控制面。Bun 提供本地 HTTP API 和 CLI，PostgreSQL + pgvector 保存运行时与派生数据，提案经过审批后才进入 canonical 内容。
+Novel Enginner 是一个以 Markdown canonical state 为基础的小说创作控制面。Bun 提供本地 HTTP API，PostgreSQL + pgvector 保存运行时与派生数据，提案经过审批后才进入 canonical 内容。所有用户交互都应在 Web 控制台完成，只有本地文件系统访问保留原生交互能力。
 
-当前仓库已提供 API handler、CLI、持久化、workflow 适配层和本地 Web 控制台。本文只记录当前代码可以实际执行的启动与使用方式。
+当前仓库已提供 API handler、持久化、workflow 适配层和本地 Web 控制台。本文只记录当前代码可以实际执行的启动与使用方式。
 
 - 面向作者/审核者的使用说明请看：[docs/user-guide.md](./docs/user-guide.md)
 
@@ -43,7 +43,7 @@ pnpm dev
 | 变量 | 必需 | 说明 |
 | --- | --- | --- |
 | `DATABASE_URL` | 使用持久化时 | 默认指向 Docker 的 `localhost:55432` |
-| `NOVEL_API_BASE_URL` | 否 | CLI 和 workflow 回调使用的 API 地址，默认 `http://localhost:3000` |
+| `NOVEL_API_BASE_URL` | 否 | Web 控制台和 workflow 回调使用的 API 地址，默认 `http://localhost:3000` |
 | `PORT` | 否 | API 监听端口，默认 `3000` |
 | `OPENAI_API_KEY` | 模型生成时 | OpenAI provider 的 API Key |
 | `OPENAI_BASE_URL` | 否 | OpenAI 兼容服务的地址 |
@@ -60,12 +60,9 @@ pnpm dev
 pnpm db:up
 pnpm db:down
 
-# 启动 API（dev 和 start 当前都运行 Bun 服务）
+# 启动 Web 控制台与本地 API（dev 和 start 当前都运行 Bun 服务）
 pnpm dev
 pnpm start
-
-# 查看 CLI 帮助
-pnpm cli -- --help
 
 # 运行类型检查和测试
 pnpm typecheck
@@ -76,78 +73,19 @@ pnpm test
 
 ```bash
 bun run src/runtime/server.ts
-bun run src/runtime/cli.ts --help
 ```
 
-## CLI 使用
+Web 控制台入口：
 
-直接运行 `pnpm cli` 会进入交互式 CLI。先设置当前工作区和书籍，下面的 ID 只是示例，实际项目可以按工作区约定替换：
-
-```bash
-export NOVEL_WORKSPACE_ID=workspace-cybernovel-001
-export NOVEL_BOOK_ID=book-quantum-ascension
-export NOVEL_REQUESTED_BY=author-local
-pnpm cli
+```text
+http://localhost:3000/app
 ```
 
-交互界面会显示可勾选的操作：
-
-- `Sync canonical state`
-- `Generate chapter 1 (outline + manuscript)`
-- `Generate chapter 2 (outline + manuscript)`
-- `Generate chapter 3 (outline + manuscript)`
-- `Rebuild graph`
-
-使用方式：
-
-- `Up` / `Down`：移动光标
-- `Space`：选择或取消当前操作
-- `Enter`：确认选择并执行
-- `Backspace` 或 `Escape`：返回并退出当前选择
-
-选择前三章后，按 Enter，CLI 会自动对每个选中的章节依次执行：生成细纲 proposal、审批细纲、生成正文 proposal、审批正文、导出草稿。章节目标 ID 会自动使用 `chapter-0001-outline` / `chapter-0001` 到 `chapter-0003-outline` / `chapter-0003`。
-
-这组操作假设 API 已在 `http://localhost:3000` 启动，数据库、Inngest 和模型 provider 已完成配置，首卷卷纲已经批准，且前三章目标已经由 onboarding 的 `chapter-outline-batch` 阶段建立。
-
-`propose`、`approve` 和 `export-draft` 是异步流程的命令入口。不要在上一个命令仍处于运行中时盲目提交下一步；先根据输出中的 `runId` 查询状态，确认细纲已批准后再请求正文：
-
-```bash
-curl "${NOVEL_API_BASE_URL:-http://localhost:3000}/runs/<runId>"
-curl -N "${NOVEL_API_BASE_URL:-http://localhost:3000}/runs/<runId>/stream"
-```
-
-如果某次运行失败，可以使用该次输出的 `runId` 重试步骤或恢复运行：
-
-```bash
-pnpm cli -- retry-step <runId> \
-  --workspace-id "$NOVEL_WORKSPACE_ID" \
-  --book-id "$NOVEL_BOOK_ID" \
-  --requested-by "$NOVEL_REQUESTED_BY"
-
-pnpm cli -- resume-run <runId> \
-  --workspace-id "$NOVEL_WORKSPACE_ID" \
-  --book-id "$NOVEL_BOOK_ID" \
-  --requested-by "$NOVEL_REQUESTED_BY"
-```
-
-显式子命令仍可用于自动化或只重试某一章；这时所有命令都需要 `--workspace-id` 和 `--book-id`。例如：
-
-```bash
-pnpm cli -- regenerate chapter-manuscript chapter-0002 \
-  --workspace-id "$NOVEL_WORKSPACE_ID" \
-  --book-id "$NOVEL_BOOK_ID" \
-  --requested-by "$NOVEL_REQUESTED_BY"
-pnpm cli -- approve chapter-manuscript chapter-0002 \
-  --workspace-id "$NOVEL_WORKSPACE_ID" \
-  --book-id "$NOVEL_BOOK_ID" \
-  --requested-by "$NOVEL_REQUESTED_BY"
-```
-
-CLI 默认将命令发到 `NOVEL_API_BASE_URL`。每次命令会自动生成 `idempotencyKey`；需要重放同一业务请求时，可以显式传入 `--idempotency-key`。
+所有面向作者 / 编辑 / 审核者的操作都应在 Web 控制台完成；本地文件系统访问仍保留作为本机工作目录交互的能力，不再提供命令行交互入口。
 
 ## HTTP API
 
-API 启动后，可以用 `curl` 提交与 CLI 相同的命令 envelope：
+API 启动后，可以用 `curl` 提交与 Web 控制台相同的命令 envelope：
 
 ```bash
 curl -X POST http://localhost:3000/commands \
@@ -202,7 +140,7 @@ curl -N http://localhost:3000/runs/<runId>/stream
 
 API 服务本身可以在没有 Inngest Key 的情况下启动，但 `propose` 等异步生成命令只有在 Inngest 事件投递和对应 worker 已配置时才会继续执行。模型生成还需要 `OPENAI_API_KEY`，或者配置 `OPENAI_BASE_URL` 指向兼容服务。
 
-当前仓库没有额外提供独立的 Inngest 本地启动脚本；如果只想验证 API、CLI、持久化和状态机，可先不配置 `INNGEST_EVENT_KEY`，使用 `pnpm test` 和上述查询命令。
+当前仓库没有额外提供独立的 Inngest 本地启动脚本；如果只想验证 API、持久化和状态机，可先不配置 `INNGEST_EVENT_KEY`，使用 `pnpm test` 和上述查询命令。
 
 ### 自托管 Inngest
 

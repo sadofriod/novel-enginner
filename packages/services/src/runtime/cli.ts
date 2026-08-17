@@ -4,6 +4,12 @@ import type { CommandEnvelope } from '../domain';
 import { runInteractiveCli } from './interactive-cli';
 
 const BASE_URL = process.env['NOVEL_API_BASE_URL'] ?? 'http://localhost:3000';
+const LEGACY_CLI_ENABLED = process.env['NOVEL_ALLOW_LEGACY_CLI'] === '1';
+const LEGACY_CLI_DISABLED_MESSAGE = [
+  'Legacy CLI interaction has been removed.',
+  'All user-facing actions must be performed in the Web control console at http://localhost:3000/app.',
+  'Local filesystem access remains available through the runtime; command-line interaction is intentionally disabled.',
+].join('\n');
 
 interface CliArgs {
   readonly subcommand: string;
@@ -264,6 +270,11 @@ async function executeInteractiveSelection(selection: NonNullable<Awaited<Return
 }
 
 async function main(): Promise<void> {
+  if (!LEGACY_CLI_ENABLED) {
+    console.error(LEGACY_CLI_DISABLED_MESSAGE);
+    process.exit(1);
+  }
+
   const rawArgs = process.argv.slice(2);
   if (rawArgs.length === 0) {
     const selection = await runInteractiveCli();

@@ -13,6 +13,19 @@
 import { EventSchemas, Inngest } from 'inngest';
 import type { CommandEnvelope } from '../domain';
 
+type InngestEnvironment = Readonly<Record<string, string | undefined>>;
+
+export function resolveInngestClientOptions(
+  env: InngestEnvironment = process.env,
+): { readonly eventKey?: string; readonly baseUrl?: string } {
+  const eventKey = env['INNGEST_EVENT_KEY']?.trim();
+  const baseUrl = env['INNGEST_BASE_URL']?.trim();
+  return {
+    ...(eventKey === undefined || eventKey === '' ? {} : { eventKey }),
+    ...(baseUrl === undefined || baseUrl === '' ? {} : { baseUrl }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Event map — gives Inngest full type-checking for every published event.
 // ---------------------------------------------------------------------------
@@ -124,6 +137,7 @@ export type NovelEvents = {
 /** Singleton Inngest client. Lazily resolved so import is safe in test environments. */
 export const inngest = new Inngest({
   id: 'novel-enginner',
+  ...resolveInngestClientOptions(),
   schemas: new EventSchemas().fromRecord<NovelEvents>(),
 });
 

@@ -48,6 +48,8 @@ pnpm dev
 | `OPENAI_API_KEY` | 模型生成时 | OpenAI provider 的 API Key |
 | `OPENAI_BASE_URL` | 否 | OpenAI 兼容服务的地址 |
 | `INNGEST_EVENT_KEY` | 异步 workflow 时 | Inngest 事件投递所需的 Key |
+| `INNGEST_SIGNING_KEY` | 异步 workflow 时 | Inngest 验证 `/api/inngest` 回调的签名 Key |
+| `INNGEST_BASE_URL` | 自托管 Inngest 时 | Inngest API 根地址，例如 `http://localhost:8288` |
 
 没有设置 `DATABASE_URL` 时，API 仍可用于内存模式测试；重启进程后数据会丢失。设置 `DATABASE_URL` 后，命令和运行记录会持久化到 PostgreSQL。
 
@@ -139,6 +141,18 @@ curl -N http://localhost:3000/runs/<runId>/stream
 API 服务本身可以在没有 Inngest Key 的情况下启动，但 `propose` 等异步生成命令只有在 Inngest 事件投递和对应 worker 已配置时才会继续执行。模型生成还需要 `OPENAI_API_KEY`，或者配置 `OPENAI_BASE_URL` 指向兼容服务。
 
 当前仓库没有额外提供独立的 Inngest 本地启动脚本；如果只想验证 API、持久化和状态机，可先不配置 `INNGEST_EVENT_KEY`，使用 `pnpm test` 和上述查询命令。
+
+### 自托管 Inngest
+
+使用自托管 Inngest 时，应用和 Inngest 服务必须使用相同的 Event Key 与 Signing Key，并将 `INNGEST_BASE_URL` 指向服务的 API 端口：
+
+```dotenv
+INNGEST_BASE_URL="http://localhost:8288"
+INNGEST_EVENT_KEY="<your-event-key>"
+INNGEST_SIGNING_KEY="<your-signing-key>"
+```
+
+应用启动后，Inngest handler 位于 `http://localhost:3000/api/inngest`。如果 Inngest 在 Docker 中运行而应用在宿主机运行，请在 Inngest 的应用配置中使用 `http://host.docker.internal:3000/api/inngest`，使容器能够访问该 handler。
 
 ## 停止服务
 

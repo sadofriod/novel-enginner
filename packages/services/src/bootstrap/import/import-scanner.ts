@@ -10,6 +10,20 @@ function toBasename(path: string): string {
   return path.split('/').at(-1)?.toLowerCase() ?? path.toLowerCase();
 }
 
+function toReferenceTarget(sourcePath: string, suffix = ''): string {
+  const slug = sourcePath
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean)
+    .join('-')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-|-$/g, '');
+  const base = slug.length === 0 ? 'imported-reference' : slug;
+  return `references/imported/${base}${suffix}.md`;
+}
+
 function detectProjectBrief(name: string): number {
   return name.includes('project-brief') || name.includes('brief') ? 0.95 : 0;
 }
@@ -61,7 +75,7 @@ export function recognizeEntity(filePath: string): BootstrapImportFileEntry | un
     { detector: detectStoryBlueprint, kind: 'story-blueprint' as const, target: 'state/book/story-blueprint.md' },
     { detector: detectVolume, kind: 'volume' as const, target: volumeTarget(name) },
     { detector: detectChapter, kind: 'chapter' as const, target: chapterTarget(name) },
-    { detector: detectReference, kind: 'reference' as const, target: 'references/imported/reference.md' },
+    { detector: detectReference, kind: 'reference' as const, target: toReferenceTarget(filePath) },
   ];
 
   for (const candidate of detectors) {
@@ -71,7 +85,7 @@ export function recognizeEntity(filePath: string): BootstrapImportFileEntry | un
         return {
           sourcePath: filePath,
           detectedKind: 'reference',
-          canonicalTarget: 'references/imported/unmapped.md',
+          canonicalTarget: toReferenceTarget(filePath, '-unmapped'),
           confidence: 0.2,
           notes: '无法从文件名稳定提取编号，需人工确认后才能映射为 canonical 工件。',
         };
@@ -92,7 +106,7 @@ export function buildMappingSuggestions(paths: ReadonlyArray<string>): ReadonlyA
   return paths.map((path) => recognizeEntity(path) ?? {
     sourcePath: path,
     detectedKind: 'reference',
-    canonicalTarget: 'references/imported/reference.md',
+    canonicalTarget: toReferenceTarget(path),
     confidence: 0.2,
     notes: '未识别到标准典型工件，保留为参考材料。',
   });

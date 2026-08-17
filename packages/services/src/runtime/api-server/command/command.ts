@@ -72,8 +72,8 @@ export async function finalizeAcceptedCommand(validation: ReturnType<typeof vali
   const sessionId = bootstrapEvents.find((event) => typeof event.data?.['sessionId'] === 'string')?.data?.['sessionId'];
   if (typeof sessionId === 'string') {
     const session = context.store.getBootstrapSession(sessionId);
-    const revisionId = bootstrapEvents.find((event) => typeof event.data?.['revisionId'] === 'string')?.data?.['revisionId'];
-    const revision = typeof revisionId === 'string' ? context.store.listBootstrapRevisions(sessionId).find((item) => item.id === revisionId) : undefined;
+    const latestRevisionId = [...bootstrapEvents].reverse().find((event) => typeof event.data?.['revisionId'] === 'string')?.data?.['revisionId'];
+    const revision = typeof latestRevisionId === 'string' ? context.store.listBootstrapRevisions(sessionId).find((item) => item.id === latestRevisionId) : undefined;
     if (session !== undefined && context.options.persistBootstrapState !== undefined) await context.options.persistBootstrapState(session, revision);
   }
   for (const event of bootstrapEvents) context.eventBus.publish(event);
@@ -100,9 +100,24 @@ export async function applyConfirmedImport(store: RuntimeStore, runId: string, p
   if (sessionId === undefined || sourceRoot === undefined || targetRoot === undefined || !('mapping' in payload)) throw new Error('confirm-import requires sessionId, sourceRoot, targetRoot, and mapping.');
   const session = store.getBootstrapSession(sessionId);
   if (session === undefined || session.path !== 'import') throw new Error(`Import Bootstrap session "${sessionId}" was not found.`);
+  if (session.currentStage !== 'import-mapping') throw new Error(`Import confirmation requires stage "import-mapping", received "${session.currentStage}".`);
   const result = await confirmImport({ sourceRoot, targetRoot, mapping: payload['mapping'] as ImportMapping });
-  const emittedAt = new Date().toISOString(); const revisionId = `bootstrap-revision-${runId}`;
-  store.upsertBootstrapRevision({ id: revisionId, sessionId, stage: 'import-health-report', createdAt: emittedAt, summary: 'Import confirmation completed and health report generated.', draft: result.healthReport as unknown as Record<string, unknown> });
+  const healthDraft: Record<string, unknown> = {
+    ready: result.healthReport.ready,
+    issues: result.healthReport.issues.map((issue) => ({ ...issue })),
+    missingArtifacts: [...result.healthReport.missingArtifacts],
+    prioritySequence: [...result.healthReport.prioritySequence],
+  };
+  const emittedAt = new Date().toISOString();
+  const confirmationRevisionId = `bootstrap-revision-${runId}-confirm`;
+  store.upsertBootstrapRevision({ id: confirmationRevisionId, sessionId, stage: 'import-confirmation', createdAt: emittedAt, summary: 'Author confirmed import mapping. Canonical import copy started.', mapping: payload['mapping'] as Record<string, unknown> });
+  const revisionId = `bootstrap-revision-${runId}`;
+  store.upsertBootstrapRevision({ id: revisionId, sessionId, stage: 'import-health-report', createdAt: emittedAt, summary: 'Import confirmation completed and health report generated.', draft: healthDraft });
   store.upsertBootstrapSession({ ...session, status: 'import-review', currentStage: 'import-health-report', currentRevisionId: revisionId, updatedAt: emittedAt });
-  return [{ type: 'bootstrap.session.updated', runId, emittedAt, data: { sessionId, revisionId } }, { type: 'bootstrap.stage.changed', runId, emittedAt, data: { sessionId, stage: 'import-health-report' } }];
+  return [
+    { type: 'bootstrap.session.updated', runId, emittedAt, data: { sessionId, revisionId: confirmationRevisionId } },
+    { type: 'bootstrap.stage.changed', runId, emittedAt, data: { sessionId, stage: 'import-confirmation' } },
+    { type: 'bootstrap.session.updated', runId, emittedAt, data: { sessionId, revisionId } },
+    { type: 'bootstrap.stage.changed', runId, emittedAt, data: { sessionId, stage: 'import-health-report' } },
+  ];
 }

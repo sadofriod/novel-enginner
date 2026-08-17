@@ -42,7 +42,9 @@ export async function handleReSyncState(body: Record<string, unknown>, store: Ru
   if (state.validity !== 'invalid') {
     const aborted = abortDriftedRuns(options.getActiveRuns(), state.snapshot.snapshotId);
     for (const item of aborted) eventBus.publish({ type: 'run.aborted', runId: item.run.runId, emittedAt: new Date().toISOString(), data: { reason: item.driftReason } });
-    options.onRunsAborted?.(aborted.map((item) => item.run.runId)); options.onSyntheticCommit?.(session.commitSyntheticSession() as never);
+    options.onRunsAborted?.(aborted.map((item) => item.run.runId));
+    const syntheticCommit = session.commitSyntheticSession();
+    if (syntheticCommit !== undefined) options.onSyntheticCommit?.(syntheticCommit);
   }
   const result = handleCommand(payload, { store, eventBus, getWorkspaceValidity });
   if (result.status === 'accepted') eventBus.publish({ type: state.validity === 'invalid' ? 'workspace.invalid' : 'workspace.valid', runId: result.runId, emittedAt: new Date().toISOString(), data: { validity: state.validity, snapshotId: state.snapshot.snapshotId, ...(state.errors.length > 0 ? { errors: state.errors } : {}) } });

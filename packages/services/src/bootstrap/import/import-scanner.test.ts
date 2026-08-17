@@ -29,7 +29,7 @@ describe('bootstrap import scanner', () => {
   test('routes unnumbered chapter candidates to references until an author confirms a mapping', () => {
     expect(buildMappingSuggestions(['chapter-notes.md'])[0]).toMatchObject({
       detectedKind: 'reference',
-      canonicalTarget: 'references/imported/reference.md',
+      canonicalTarget: 'references/imported/chapter-notes-md.md',
       confidence: 0.2,
     });
   });

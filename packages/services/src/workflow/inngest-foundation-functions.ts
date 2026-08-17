@@ -3,7 +3,7 @@ import { createDefaultModelProvider } from '../agent/provider';
 import { persistCanonicalDraft } from '../persistence/operations';
 import { createBootstrapArtifactDraft } from '../runtime/canonical-draft';
 import { inngest } from './inngest-client';
-import { createPersistedProposal, synchronizeWorkflowWorkspace } from './inngest-functions';
+import { createPersistedProposal, synchronizeWorkflowWorkspace } from './inngest-workflow-helpers';
 
 export const projectBriefFunction = inngest.createFunction(
   { id: 'project-brief-workflow', name: 'Project Brief Workflow', concurrency: { limit: 1, key: 'event.data.bookId' }, retries: 2 },

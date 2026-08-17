@@ -71,9 +71,9 @@ export function recognizeEntity(filePath: string): BootstrapImportFileEntry | un
         return {
           sourcePath: filePath,
           detectedKind: 'reference',
-          canonicalTarget: 'references/imported/unmapped.md',
+          canonicalTarget: undefined,
           confidence: 0.2,
-          notes: '无法从文件名稳定提取编号，需人工确认后才能映射为 canonical 工件。',
+          notes: '无法从文件名稳定提取编号，确认后隔离到 references/imported/，不参与 canonical 生成。',
         };
       }
       return {
@@ -92,9 +92,9 @@ export function buildMappingSuggestions(paths: ReadonlyArray<string>): ReadonlyA
   return paths.map((path) => recognizeEntity(path) ?? {
     sourcePath: path,
     detectedKind: 'reference',
-    canonicalTarget: 'references/imported/reference.md',
+    canonicalTarget: undefined,
     confidence: 0.2,
-    notes: '未识别到标准典型工件，保留为参考材料。',
+    notes: '未识别到标准典型工件，确认后隔离到 references/imported/，不参与 canonical 生成。',
   });
 }
 

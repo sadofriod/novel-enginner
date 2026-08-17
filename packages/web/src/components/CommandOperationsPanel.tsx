@@ -4,17 +4,18 @@ import { useState } from 'react';
 import { Button, FormControl, InputLabel, MenuItem, Select, Stack, TextField } from '@mui/material';
 
 import { PROPOSAL_ARTIFACT_TYPE_VALUES, type ProposalArtifactType } from '@novel-enginner/services/domain/values';
-import type { CommandResult } from '@novel-enginner/services/runtime/command-handler';
 
-import { ApiClient } from '../api-client';
+import type { CommandApi } from '../api-types';
 import { getProposalArtifactTypeName } from '../proposal-artifact-type-name';
 import { ArtifactProposalForm } from './ArtifactProposalForm';
 
+const AUTHORABLE_ARTIFACT_TYPES = PROPOSAL_ARTIFACT_TYPE_VALUES.filter((type) => type !== 'world-change');
+
 export interface CommandOperationsPanelProps {
-  readonly apiClient: Pick<ApiClient, 'submitCommand' | 'submitSync'>;
+  readonly apiClient: CommandApi;
   readonly workspaceId: string | undefined;
   readonly bookId: string | undefined;
-  readonly onCommandCompleted: (result: CommandResult) => Promise<void>;
+  readonly onCommandCompleted: (result: Awaited<ReturnType<CommandApi['submitCommand']>>) => Promise<void>;
 }
 
 type CommandKind = 'propose' | 'regenerate';
@@ -105,6 +106,17 @@ export function CommandOperationsPanel({
         <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
           <Button type="button" variant="contained" onClick={() => { void submit('propose'); }} disabled={!isReady || isSubmitting}>生成提案</Button>
           <Button type="button" variant="outlined" onClick={() => { void submit('regenerate'); }} disabled={!isReady || isSubmitting}>重新生成提案</Button>
+        </Stack>
+      </fieldset>
+      <fieldset style={{ border: '1px solid #e0e0e0', margin: 0, padding: '10px', display: 'grid', gap: '8px' }}>
+        <legend>按类型填写新建</legend>
+        <p style={{ margin: 0, color: '#616161', fontSize: '13px' }}>每个工件类型使用独立表单填写必需数据，而非复用同一入口。</p>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+          {AUTHORABLE_ARTIFACT_TYPES.map((type) => (
+            <a key={type} href={`/app/new/${type}`} style={{ textDecoration: 'none' }}>
+              <Button size="small" variant="outlined">{getProposalArtifactTypeName(type)}</Button>
+            </a>
+          ))}
         </Stack>
       </fieldset>
       <fieldset style={{ border: '1px solid #e0e0e0', margin: 0, padding: '10px', display: 'grid', gap: '8px' }}>

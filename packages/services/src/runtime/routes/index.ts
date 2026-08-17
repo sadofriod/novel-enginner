@@ -17,6 +17,7 @@ import { getRunRoute } from './runs/[runId]/get';
 import { getRunStreamRoute } from './runs/[runId]/stream/get';
 import { postRebuildGraphRoute } from './sync/rebuild-graph/post';
 import { postReSyncStateRoute } from './sync/re-sync-state/post';
+import { postSyntheticReviewOutcomeRoute } from './review/synthetic-outcome/post';
 import type { RuntimeRouteDefinition } from './types';
 
 const ROUTES: readonly RuntimeRouteDefinition[] = [
@@ -39,6 +40,7 @@ const ROUTES: readonly RuntimeRouteDefinition[] = [
   getBootstrapSessionEvidenceRoute,
   postRebuildGraphRoute,
   postReSyncStateRoute,
+  postSyntheticReviewOutcomeRoute,
 ];
 
 export function listRegisteredRoutes(): readonly RuntimeRouteDefinition[] {

@@ -26,10 +26,10 @@ describe('bootstrap import scanner', () => {
     ]);
   });
 
-  test('routes unnumbered chapter candidates to references until an author confirms a mapping', () => {
+  test('routes unnumbered chapter candidates to reference isolation until an author confirms a mapping', () => {
     expect(buildMappingSuggestions(['chapter-notes.md'])[0]).toMatchObject({
       detectedKind: 'reference',
-      canonicalTarget: 'references/imported/reference.md',
+      canonicalTarget: undefined,
       confidence: 0.2,
     });
   });

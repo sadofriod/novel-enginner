@@ -1,11 +1,35 @@
 import { NonRetriableError } from 'inngest';
 
-import { assembleReviewerResult } from '../agent/reviewer';
+import { assembleReviewerResult, isNonExemptibleReviewFailure } from '../agent/reviewer';
 import { requestReviewerModelEvidence } from '../agent/reviewer-agent';
 import { loadReviewerRules } from '../agent/reviewer-rules-loader';
 import { createDefaultModelProvider } from '../agent/provider';
 import { persistReviewerResultAndLinkProposal } from '../persistence/operations';
+import type { ReviewerResult } from '../domain/schema';
 import { inngest } from './inngest-client';
+
+interface SyntheticReviewRunResult {
+  readonly artifactType: string;
+  readonly targetId: string;
+  readonly editedFilePath: string;
+  readonly status: 'blocked' | 'passed';
+  readonly reviewerResult: ReviewerResult;
+}
+
+function reportSyntheticReviewOutcome(input: {
+  readonly workspaceId: string;
+  readonly bookId: string;
+  readonly artifactType: string;
+  readonly targetId: string;
+  readonly status: 'passed' | 'blocked';
+  readonly reviewerResult: unknown;
+}): Promise<Response> {
+  return fetch(`${process.env['NOVEL_API_BASE_URL'] ?? 'http://localhost:3000'}/review/synthetic-outcome`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
 
 export const syntheticReviewFunction = inngest.createFunction(
   {
@@ -17,7 +41,7 @@ export const syntheticReviewFunction = inngest.createFunction(
   async ({ event, step }) => {
     const { workspaceId, bookId, artifactType, targetId, editedFilePath, editedText, proposalId } = event.data;
 
-    const reviewResult = await step.run('run-synthetic-review', async () => {
+    const reviewResult = await step.run('run-synthetic-review', async (): Promise<SyntheticReviewRunResult> => {
       if (editedText === undefined) {
         throw new NonRetriableError(
           `Synthetic review for ${artifactType}/${targetId} requires editedText (${editedFilePath}).`,
@@ -42,9 +66,16 @@ export const syntheticReviewFunction = inngest.createFunction(
         artifactType,
         targetId,
         editedFilePath,
-        status: result.approved ? 'passed' : 'blocked',
+        status: isNonExemptibleReviewFailure(result) ? 'blocked' : 'passed',
         reviewerResult: result,
       };
+    });
+
+    await step.run('apply-outcome', async () => {
+      const response = await reportSyntheticReviewOutcome({ workspaceId, bookId, artifactType, targetId, status: reviewResult.status, reviewerResult: reviewResult.reviewerResult });
+      if (!response.ok) {
+        throw new NonRetriableError(`apply synthetic review outcome failed: ${response.status}`);
+      }
     });
 
     return { workspaceId, bookId, ...reviewResult };

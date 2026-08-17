@@ -210,3 +210,12 @@ export function computeReviewFreshnessAfterManualEdit(
   }
   return { status: 'stale', reason: REVIEW_STALE_REASON };
 }
+
+/**
+ * True when the review failed and cannot be overridden (§5.6/§5.8). Such a result keeps
+ * the hand-edited canonical content in place (no rollback) but blocks downstream auto
+ * flows that depend on the artifact until a fresh review passes.
+ */
+export function isNonExemptibleReviewFailure(reviewerResult: ReviewerResult): boolean {
+  return !reviewerResult.approved && !reviewerResult.overrideEligible;
+}

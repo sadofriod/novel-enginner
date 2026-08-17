@@ -5,6 +5,9 @@ import { findActiveProposalForTarget, findPersistedCanonicalDraft, findPersisted
 import { applyProposalCommand } from '../../../workflow/command-lifecycle';
 import { commitCanonicalBundle } from '../../../workspace/canonical-commit';
 import { withCanonicalCommitLane } from '../../../workspace/canonical-commit-lane';
+import { readCanonicalWorkspaceFiles } from '../../../workspace/file-watcher';
+import { reSyncState } from '../../../workspace/sync-engine';
+import { finalizeBootstrapArtifactApproval, hasBootstrapApprovalSession, isBootstrapArtifactType } from '../../bootstrap-initializer';
 import { createApprovedCanonicalDraft } from '../../canonical-draft';
 import type { CommandResult, } from '../../command-handler';
 import { RunEventBus } from '../../event-bus';
@@ -26,9 +29,19 @@ export function syncArtifactSummary(store: RuntimeStore, _eventBus: RunEventBus,
   store.upsertArtifact({ ...existing, artifactType: envelope.artifactType, targetId: envelope.targetId, canonicalStatus: existing?.canonicalStatus ?? 'draft', ...(proposalIntent ? { activeProposalId: existing?.activeProposalId ?? `proposal-${result.runId}`, proposalStatus: 'pending-approval' } : decisionIntent ? {} : { proposalStatus: resolveProposalStatus(envelope.intent, getWorkspaceValidity(envelope.workspaceId)) }), updatedAt: result.acceptedAt });
 }
 
-export function handleInlineEdit(store: RuntimeStore, artifactType: string, targetId: string, inlineEditNote: string): void {
+export interface InlineEditOutcome {
+  readonly wasApprovedBeforeEdit: boolean;
+  readonly activeProposalId?: string;
+}
+
+export function handleInlineEdit(store: RuntimeStore, artifactType: string, targetId: string, inlineEditNote: string): InlineEditOutcome | undefined {
   const artifact = store.getArtifact(artifactType, targetId);
-  if (artifact !== undefined) store.upsertArtifact({ ...artifact, inlineEditNote, reviewStale: true, updatedAt: new Date().toISOString() });
+  if (artifact === undefined) {
+    return undefined;
+  }
+  const wasApprovedBeforeEdit = artifact.proposalStatus === 'approved' || artifact.proposalStatus === 'override-approved';
+  store.upsertArtifact({ ...artifact, inlineEditNote, reviewStale: true, updatedAt: new Date().toISOString() });
+  return { wasApprovedBeforeEdit, ...(artifact.activeProposalId === undefined ? {} : { activeProposalId: artifact.activeProposalId }) };
 }
 
 export async function applyPersistedProposalDecision(input: { readonly store: RuntimeStore; readonly eventBus: RunEventBus; readonly envelope: CommandEnvelope; readonly runId: string; readonly getWorkspaceValidity: (workspaceId: string) => WorkspaceValidity; readonly options: CreateApiServerOptions }): Promise<void> {
@@ -44,7 +57,44 @@ export async function applyPersistedProposalDecision(input: { readonly store: Ru
   else if (persistenceEnabled) await persistProposal(input.envelope.workspaceId, input.envelope.bookId, decision.proposal);
   else input.store.saveProposal(decision.proposal);
   let committed = false;
-  if (decision.canCommit) { const reason = await commitApprovedProposalDraft(input.store, input.options, input.envelope.bookId, decision.proposal, snapshot.snapshotId, input.getWorkspaceValidity(input.envelope.workspaceId)); if (reason !== undefined) { updateArtifactDecisionStatus(input.store, input.envelope, decision.proposal.status); input.eventBus.publish({ type: 'run.step.failed', runId: input.runId, emittedAt: new Date().toISOString(), data: { reason } }); return; } committed = true; }
+  if (decision.canCommit
+    && isBootstrapArtifactType(input.envelope.artifactType)
+    && hasBootstrapApprovalSession(input.store, input.envelope.bookId, input.envelope.artifactType)) {
+    const init = await finalizeBootstrapArtifactApproval({
+      store: input.store,
+      eventBus: input.eventBus,
+      runId: input.runId,
+      workspaceId: input.envelope.workspaceId,
+      bookId: input.envelope.bookId,
+      workspaceRoot: input.options.workspaceRoot ?? process.cwd(),
+      artifactType: input.envelope.artifactType as Proposal['artifactType'],
+      proposal: decision.proposal,
+      options: input.options,
+    });
+    if (init.reason !== undefined) {
+      updateArtifactDecisionStatus(input.store, input.envelope, decision.proposal.status);
+      input.eventBus.publish({ type: 'run.step.failed', runId: input.runId, emittedAt: new Date().toISOString(), data: { reason: init.reason } });
+      return;
+    }
+    committed = true;
+    updateArtifactDecisionStatus(input.store, input.envelope, decision.proposal.status, committed);
+    for (const event of init.events) {
+      input.eventBus.publish(event);
+    }
+    return;
+  }
+  if (decision.canCommit) {
+    const reason = await commitApprovedProposalDraft(input.store, input.options, input.envelope.bookId, decision.proposal, snapshot.snapshotId, input.getWorkspaceValidity(input.envelope.workspaceId));
+    if (reason !== undefined) {
+      updateArtifactDecisionStatus(input.store, input.envelope, decision.proposal.status);
+      const failedAt = new Date().toISOString();
+      input.eventBus.publish({ type: 'run.step.failed', runId: input.runId, emittedAt: failedAt, data: { reason } });
+      input.eventBus.publish({ type: 'artifact.commit-failed', runId: input.runId, emittedAt: failedAt, data: { proposalId: decision.proposal.proposalId, status: decision.proposal.status, reason, recoverable: true } });
+      return;
+    }
+    committed = true;
+    await reSyncWorkspaceAfterCommit(input.store, input.options, input.envelope.workspaceId, input.options.workspaceRoot ?? process.cwd());
+  }
   updateArtifactDecisionStatus(input.store, input.envelope, decision.proposal.status, committed);
   const eventType = committed ? 'artifact.canonical-committed' : decision.proposal.status === 'waiting-sync' || decision.proposal.status === 'commit-blocked' ? 'artifact.commit-blocked' : input.envelope.intent === 'reject' ? 'artifact.rejected' : input.envelope.intent === 'export-draft' ? 'artifact.exported' : input.envelope.intent === 'override-approve' ? 'artifact.override-approved' : 'artifact.approved';
   input.eventBus.publish({ type: eventType, runId: input.runId, emittedAt: new Date().toISOString(), data: { proposalId: decision.proposal.proposalId, status: decision.proposal.status } });
@@ -54,6 +104,20 @@ async function loadReviewerResult(proposal: Proposal, options: CreateApiServerOp
   if (proposal.latestReviewResultId === undefined) return {};
   const result = options.loadReviewerResult !== undefined ? await options.loadReviewerResult(proposal.latestReviewResultId) : persistenceEnabled ? await findPersistedReviewerResult(proposal.latestReviewResultId) : undefined;
   return result === undefined ? {} : { reviewerResult: result };
+}
+
+/**
+ * Re-runs the canonical re-sync pipeline over the on-disk workspace immediately after
+ * a commit, so snapshot/validity reflect the committed files without waiting for the
+ * file watcher (docs/current-state/08-architecture-gap-matrix.md §2: "commit 主要依赖
+ * watcher re-sync").
+ */
+async function reSyncWorkspaceAfterCommit(store: RuntimeStore, options: CreateApiServerOptions, workspaceId: string, workspaceRoot: string): Promise<void> {
+  const readFiles = options.readCanonicalFiles ?? readCanonicalWorkspaceFiles;
+  const files = await readFiles(workspaceRoot);
+  const reconciled = reSyncState(files, store.getLastKnownSnapshot(workspaceId));
+  store.setLastKnownSnapshot(workspaceId, reconciled.snapshot);
+  store.setWorkspaceValidity(workspaceId, reconciled.validity);
 }
 
 async function commitApprovedProposalDraft(store: RuntimeStore, options: CreateApiServerOptions, bookId: string, proposal: Proposal, currentSnapshotId: string, validity: WorkspaceValidity): Promise<string | undefined> {

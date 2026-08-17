@@ -1,9 +1,12 @@
 /* eslint-disable complexity */
 
 import type { CommandEnvelope } from '../domain';
-import type { BootstrapPath, BootstrapSession, BootstrapStage } from '../bootstrap/types';
-import { getNextStageId, isLastStage } from '../bootstrap/stages/stage-defs';
+import type { BootstrapEvidence, BootstrapPath, BootstrapSession, BootstrapStage } from '../bootstrap/types';
+import { getNextStageId } from '../bootstrap/stages/stage-defs';
 import { abandonBootstrapSession } from '../bootstrap/state-machine/state-machine';
+import { extractCleanedSummary } from '../bootstrap/research/research-orchestrator';
+import { defaultMarketResearchPort, type MarketResearchPort } from '../bootstrap/research/market-research-port';
+import { NEW_BOOK_PROPOSAL_STAGES, seedChapterOutlineBatch, seedStageProposal } from './bootstrap-stage-seeding';
 import type { RunEvent } from './event-bus';
 import { RuntimeStore } from './store';
 
@@ -14,6 +17,7 @@ export interface ApplyBootstrapCommandInput {
   readonly envelope: CommandEnvelope;
   readonly runId: string;
   readonly payload: BootstrapCommandPayload;
+  readonly marketResearchPort?: MarketResearchPort;
   readonly now?: () => Date;
 }
 
@@ -115,6 +119,12 @@ function revisionIdFor(runId: string): string {
   return `bootstrap-revision-${runId}`;
 }
 
+function importHealthReportReady(store: RuntimeStore, sessionId: string): boolean {
+  const report = store.listBootstrapRevisions(sessionId)
+    .find((revision) => revision.stage === 'import-health-report')?.draft;
+  return report !== undefined && typeof report === 'object' && report['ready'] === true;
+}
+
 function saveSessionRevision(
   input: ApplyBootstrapCommandInput,
   session: BootstrapSession,
@@ -125,6 +135,7 @@ function saveSessionRevision(
     readonly draft?: Record<string, unknown>;
     readonly mapping?: Record<string, unknown>;
     readonly diagnostics?: readonly string[];
+    readonly evidenceIds?: readonly string[];
   },
 ): string {
   const revisionId = revisionIdFor(input.runId);
@@ -137,6 +148,7 @@ function saveSessionRevision(
     ...(options.draft === undefined ? {} : { draft: options.draft }),
     ...(options.mapping === undefined ? {} : { mapping: options.mapping }),
     ...(options.diagnostics === undefined ? {} : { diagnostics: options.diagnostics }),
+    ...(options.evidenceIds === undefined ? {} : { evidenceIds: options.evidenceIds }),
   });
   return revisionId;
 }
@@ -147,31 +159,49 @@ function continueSession(input: ApplyBootstrapCommandInput, emittedAt: string): 
     && input.store.listBootstrapRevisions(session.id).filter((revision) => revision.stage === 'inspiration-dialogue').length < 5) {
     throw new Error('Five inspiration dialogue revisions are required before generating the project brief.');
   }
+
+  if (session.path === 'new-book' && session.status === 'advancing' && NEW_BOOK_PROPOSAL_STAGES.has(session.currentStage)) {
+    seedStageProposal(input, session, session.currentStage);
+    input.store.upsertBootstrapSession({ ...session, status: 'awaiting-approval', updatedAt: emittedAt });
+    return { events: [
+      event('bootstrap.session.updated', input.runId, emittedAt, { sessionId: session.id, status: 'awaiting-approval' }),
+      event('bootstrap.stage.changed', input.runId, emittedAt, { sessionId: session.id, stage: session.currentStage }),
+    ] };
+  }
+
   const nextStage = getNextStageId(session.path, session.currentStage);
   if (nextStage === undefined) {
-    if (!isLastStage(session.path, session.currentStage)) {
-      throw new Error(`Bootstrap stage "${session.currentStage}" cannot be continued.`);
+    if (session.path === 'import') {
+      if (!importHealthReportReady(input.store, session.id)) {
+        throw new Error('Import health report is not ready; fill missing artifacts before continuing to write.');
+      }
+      const readySession: BootstrapSession = { ...session, status: 'ready-to-write', updatedAt: emittedAt };
+      input.store.upsertBootstrapSession(readySession);
+      return { events: [
+        event('bootstrap.session.updated', input.runId, emittedAt, { sessionId: session.id, status: readySession.status }),
+        event('bootstrap.ready-to-write', input.runId, emittedAt, { sessionId: session.id }),
+      ] };
     }
-    const readySession: BootstrapSession = {
-      ...session,
-      status: 'ready-to-write',
-      updatedAt: emittedAt,
-    };
-    input.store.upsertBootstrapSession(readySession);
-    return { events: [
-      event('bootstrap.session.updated', input.runId, emittedAt, { sessionId: session.id, status: readySession.status }),
-      event('bootstrap.ready-to-write', input.runId, emittedAt, { sessionId: session.id }),
-    ] };
+    if (session.path === 'new-book' && session.currentStage === 'chapter-outline-batch') {
+      seedChapterOutlineBatch(input, session);
+      input.store.upsertBootstrapSession({ ...session, status: 'awaiting-approval', updatedAt: emittedAt });
+      return { events: [
+        event('bootstrap.session.updated', input.runId, emittedAt, { sessionId: session.id, status: 'awaiting-approval' }),
+        event('bootstrap.stage.changed', input.runId, emittedAt, { sessionId: session.id, stage: 'chapter-outline-batch' }),
+      ] };
+    }
+    throw new Error(`Bootstrap stage "${session.currentStage}" cannot be continued.`);
   }
   const revisionId = saveSessionRevision(input, session, emittedAt, {
     summary: `Author explicitly continued from ${session.currentStage} to ${nextStage}.`,
     stage: nextStage,
   });
+  const seeded = seedStageProposal(input, session, nextStage);
   input.store.upsertBootstrapSession({
     ...session,
     status: session.path === 'import'
       ? 'import-review'
-      : nextStage === 'project-brief' ? 'awaiting-approval' : 'advancing',
+      : seeded ? 'awaiting-approval' : 'advancing',
     currentStage: nextStage,
     currentRevisionId: revisionId,
     updatedAt: emittedAt,
@@ -182,15 +212,64 @@ function continueSession(input: ApplyBootstrapCommandInput, emittedAt: string): 
   ] };
 }
 
+function researchSourcesValue(payload: BootstrapCommandPayload): readonly { readonly url: string; readonly title: string; readonly summary: string }[] {
+  const sources = payload['sources'];
+  if (!Array.isArray(sources)) {
+    return [];
+  }
+  return sources.flatMap((item) => {
+    if (item === null || typeof item !== 'object') {
+      return [];
+    }
+    const source = item as Record<string, unknown>;
+    return typeof source['url'] === 'string' && typeof source['title'] === 'string' && typeof source['summary'] === 'string'
+      ? [{ url: source['url'], title: source['title'], summary: source['summary'] }]
+      : [];
+  });
+}
+
+/**
+ * Persists research sources as `BootstrapEvidence` through the restricted
+ * `MarketResearchPort`, applying the source/copyright policy before any source can
+ * be referenced from canonical content
+ * (docs/architecture/modules/11-bootstrap-and-onboarding.md §11.3).
+ */
+function persistResearchEvidence(
+  input: ApplyBootstrapCommandInput,
+  session: BootstrapSession,
+  emittedAt: string,
+): readonly string[] {
+  const port = input.marketResearchPort ?? defaultMarketResearchPort;
+  const sources = researchSourcesValue(input.payload);
+  return sources.map((source, index) => {
+    const policy = port.evaluatePolicy(source);
+    const evidence: BootstrapEvidence = {
+      id: `evidence-${input.runId}-${index}`,
+      sessionId: session.id,
+      url: source.url,
+      title: source.title,
+      collectedAt: emittedAt,
+      cleanedSummary: extractCleanedSummary(source.summary),
+      license: policy.license,
+      copyrightBoundary: policy.copyrightBoundary,
+      status: 'draft',
+    };
+    input.store.upsertBootstrapEvidence(evidence);
+    return evidence.id;
+  });
+}
+
 function submitResearch(input: ApplyBootstrapCommandInput, emittedAt: string): ApplyBootstrapCommandResult {
   const session = requireSession(input);
   if (session.path !== 'new-book' || session.currentStage !== 'market-research') {
     throw new Error('Market research is only available during the new-book market-research stage.');
   }
   const draft = recordValue(input.payload, 'draft');
+  const evidenceIds = persistResearchEvidence(input, session, emittedAt);
   const revisionId = saveSessionRevision(input, session, emittedAt, {
     summary: stringValue(input.payload, 'summary') ?? 'Market research trend brief recorded.',
     ...(draft === undefined ? {} : { draft }),
+    ...(evidenceIds.length === 0 ? {} : { evidenceIds }),
   });
   input.store.upsertBootstrapSession({ ...session, currentRevisionId: revisionId, updatedAt: emittedAt });
   return { events: [event('bootstrap.session.updated', input.runId, emittedAt, { sessionId: session.id, revisionId })] };

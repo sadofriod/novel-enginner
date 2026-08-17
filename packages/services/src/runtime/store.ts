@@ -20,6 +20,12 @@ export interface ArtifactSummary extends ArtifactDetailState {
    * the re-assessment passes.
    */
   readonly reviewStale?: boolean;
+  /**
+   * When true, a synthetic re-review found a non-exemptible failure on hand-edited
+   * canonical content (§5.8). The artifact stays canonical (no rollback), but downstream
+   * auto flows are blocked until a fresh review passes.
+   */
+  readonly reviewBlocked?: boolean;
   /** ISO timestamp of the last known update, used to order the Web console queue. */
   readonly updatedAt?: string;
 }

@@ -29,6 +29,8 @@ export interface CreateApiServerOptions {
     readonly proposalId?: string;
   }) => Promise<void>;
   readonly persistBootstrapState?: (session: BootstrapSession, revision?: BootstrapRevision) => Promise<void>;
+  readonly marketResearchPort?: import('../../bootstrap/research/market-research-port').MarketResearchPort;
+  readonly readCanonicalFiles?: (workspaceRoot: string) => Promise<readonly import('../../workspace/sync-engine').WorkspaceFileInput[]>;
   readonly reSyncStateOptions?: {
     readonly getActiveRuns: () => readonly RunSnapshotRef[];
     readonly onRunsAborted?: (runIds: readonly string[]) => void;

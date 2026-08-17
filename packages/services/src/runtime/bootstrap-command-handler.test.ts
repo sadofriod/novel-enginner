@@ -144,4 +144,163 @@ describe('applyBootstrapCommand', () => {
     });
     expect(store.getBootstrapSession('bootstrap-import-001')?.status).toBe('abandoned');
   });
+
+  test('auto-generates a schema-valid project-brief proposal after the five dialogue rounds', () => {
+    const store = new RuntimeStore();
+    applyBootstrapCommand({
+      store,
+      envelope: BASE_ENVELOPE,
+      runId: 'run-bootstrap-generate-create-001',
+      payload: { sessionId: 'bootstrap-generate-001', path: 'new-book', bookName: 'Nova Run' },
+      now: () => new Date('2026-08-15T00:00:00.000Z'),
+    });
+    applyBootstrapCommand({
+      store,
+      envelope: { ...BASE_ENVELOPE, intent: 'continue-bootstrap-session', systemTaskType: 'continue-bootstrap-session' },
+      runId: 'run-bootstrap-generate-to-dialogue-001',
+      payload: { sessionId: 'bootstrap-generate-001' },
+      now: () => new Date('2026-08-15T00:01:00.000Z'),
+    });
+    const decisions = { genre: '科幻, 太空歌剧', targetAudience: '青年读者', readerPromise: '持续紧张感', corePremise: '在规则中追求自由', openingHook: '开场事件', contentBoundaries: '不剧透', format: '连载长篇' };
+    for (const round of [1, 2, 3, 4, 5]) {
+      applyBootstrapCommand({
+        store,
+        envelope: { ...BASE_ENVELOPE, intent: 'submit-dialogue-round', systemTaskType: 'submit-dialogue-round' },
+        runId: `run-bootstrap-generate-round-${round}`,
+        payload: { sessionId: 'bootstrap-generate-001', summary: `Round ${round}`, draft: decisions },
+        now: () => new Date(`2026-08-15T00:0${round + 1}:00.000Z`),
+      });
+    }
+
+    const continued = applyBootstrapCommand({
+      store,
+      envelope: { ...BASE_ENVELOPE, intent: 'continue-bootstrap-session', systemTaskType: 'continue-bootstrap-session' },
+      runId: 'run-bootstrap-generate-continue-001',
+      payload: { sessionId: 'bootstrap-generate-001' },
+      now: () => new Date('2026-08-15T00:07:00.000Z'),
+    });
+
+    const session = store.getBootstrapSession('bootstrap-generate-001');
+    expect(session).toMatchObject({ currentStage: 'project-brief', status: 'awaiting-approval' });
+    expect(continued.events.map((event) => event.type)).toEqual(['bootstrap.session.updated', 'bootstrap.stage.changed']);
+
+    const briefId = 'project-brief-book-bootstrap-test';
+    const proposal = store.getActiveProposal('project-brief', briefId);
+    expect(proposal).toBeDefined();
+    expect(proposal?.status).toBe('pending-approval');
+    const draft = store.getCanonicalDraft(proposal?.proposalId ?? '');
+    expect(draft?.relativePath).toBe('state/book/project-brief.md');
+    expect(store.getLastKnownSnapshot('workspace-bootstrap-test')?.snapshotId).toBe('snap-0001');
+  });
+
+  test('persists market-research evidence through the restricted research port', () => {
+    const store = new RuntimeStore();
+    applyBootstrapCommand({
+      store,
+      envelope: BASE_ENVELOPE,
+      runId: 'run-bootstrap-evidence-create-001',
+      payload: { sessionId: 'bootstrap-evidence-001', path: 'new-book' },
+      now: () => new Date('2026-08-15T00:00:00.000Z'),
+    });
+    const port = {
+      research: async () => [],
+      evaluatePolicy: (source: { readonly url: string }) => ({
+        license: 'cc-by' as const,
+        copyrightBoundary: source.url.includes('example.com') ? 'blocked' as const : 'allowed' as const,
+      }),
+    };
+
+    const result = applyBootstrapCommand({
+      store,
+      envelope: { ...BASE_ENVELOPE, intent: 'submit-market-research', systemTaskType: 'submit-market-research' },
+      runId: 'run-bootstrap-evidence-research-001',
+      payload: {
+        sessionId: 'bootstrap-evidence-001',
+        summary: 'Trend brief.',
+        sources: [
+          { url: 'https://archive.org/details/trend', title: 'Trend Report', summary: 'Readers want  A '.repeat(50) + 'nuance.' },
+          { url: 'https://example.com/leak', title: 'Restricted', summary: 'summary' },
+        ],
+      },
+      marketResearchPort: port,
+      now: () => new Date('2026-08-15T00:01:00.000Z'),
+    });
+
+    expect(result.events.map((event) => event.type)).toEqual(['bootstrap.session.updated']);
+    const evidence = store.listBootstrapEvidence('bootstrap-evidence-001');
+    expect(evidence).toHaveLength(2);
+    const permissive = evidence[0]!;
+    const blocked = evidence[1]!;
+    expect(permissive).toMatchObject({
+      url: 'https://archive.org/details/trend',
+      license: 'cc-by',
+      copyrightBoundary: 'allowed',
+      status: 'draft',
+    });
+    expect(permissive.cleanedSummary).toBeDefined();
+    expect(blocked).toMatchObject({ license: 'cc-by', copyrightBoundary: 'blocked' });
+    const revision = store.listBootstrapRevisions('bootstrap-evidence-001')[0];
+    expect(revision?.evidenceIds).toEqual([permissive.id, blocked.id]);
+  });
+
+  test('blocks continuing to write when the import health report is not ready', () => {
+    const store = new RuntimeStore();
+    const session = {
+      id: 'bootstrap-import-health-001',
+      workspaceId: 'workspace-bootstrap-test',
+      bookId: 'book-bootstrap-test',
+      path: 'import' as const,
+      status: 'import-review' as const,
+      currentStage: 'import-health-report' as const,
+      createdAt: '2026-08-15T00:00:00.000Z',
+      updatedAt: '2026-08-15T00:00:00.000Z',
+    };
+    store.upsertBootstrapSession(session);
+    store.upsertBootstrapRevision({
+      id: 'bootstrap-revision-import-health-001',
+      sessionId: session.id,
+      stage: 'import-health-report',
+      createdAt: '2026-08-15T00:01:00.000Z',
+      draft: { ready: false, missingArtifacts: ['world-foundation'] },
+    });
+
+    expect(() => applyBootstrapCommand({
+      store,
+      envelope: { ...BASE_ENVELOPE, intent: 'continue-bootstrap-session', systemTaskType: 'continue-bootstrap-session' },
+      runId: 'run-bootstrap-import-continue-001',
+      payload: { sessionId: session.id },
+    })).toThrow('Import health report is not ready');
+    expect(store.getBootstrapSession(session.id)?.status).toBe('import-review');
+  });
+
+  test('allows continuing to write once the import health report is ready', () => {
+    const store = new RuntimeStore();
+    const session = {
+      id: 'bootstrap-import-health-ready-001',
+      workspaceId: 'workspace-bootstrap-test',
+      bookId: 'book-bootstrap-test',
+      path: 'import' as const,
+      status: 'import-review' as const,
+      currentStage: 'import-health-report' as const,
+      createdAt: '2026-08-15T00:00:00.000Z',
+      updatedAt: '2026-08-15T00:00:00.000Z',
+    };
+    store.upsertBootstrapSession(session);
+    store.upsertBootstrapRevision({
+      id: 'bootstrap-revision-import-health-ready-001',
+      sessionId: session.id,
+      stage: 'import-health-report',
+      createdAt: '2026-08-15T00:01:00.000Z',
+      draft: { ready: true, missingArtifacts: [] },
+    });
+
+    const result = applyBootstrapCommand({
+      store,
+      envelope: { ...BASE_ENVELOPE, intent: 'continue-bootstrap-session', systemTaskType: 'continue-bootstrap-session' },
+      runId: 'run-bootstrap-import-continue-ready-001',
+      payload: { sessionId: session.id },
+    });
+    expect(result.events.map((event) => event.type)).toEqual(['bootstrap.session.updated', 'bootstrap.ready-to-write']);
+    expect(store.getBootstrapSession(session.id)?.status).toBe('ready-to-write');
+  });
 });

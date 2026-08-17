@@ -6,7 +6,7 @@ import type { ArtifactSummary, CommandRecord, RunRecord } from '@novel-enginner/
 import type { CommandResult } from '@novel-enginner/services/runtime/command-handler';
 import type { BootstrapEvidence, BootstrapRevision, BootstrapSession } from '@novel-enginner/services/bootstrap/types';
 import type { OverrideAudit } from '@novel-enginner/services/domain/schema';
-import type { BootstrapConfig, CommandInput, SyncCommandInput } from './api-client';
+import type { BootstrapConfig, CommandInput, SyncCommandInput } from './api-types';
 
 type CreateBootstrapSessionInput = {
   readonly path: 'new-book' | 'import';

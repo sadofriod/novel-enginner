@@ -26,6 +26,6 @@ HTTP 与 CLI 共用 `CommandEnvelope` 和 command handler，这是稳定的控�
 
 - command/run 创建应在一个 transaction 内完成。
 - artifact/proposal/run/reviewer/audit 需要统一恢复读模型。
-- commit 后应显式同步并发布可恢复事件，而不是主要依赖 watcher。
+- commit 后已改为显式重读磁盘 + `reSyncState` 更新快照/validity，并把 commit 失败发布为可恢复的 `artifact.commit-failed` 事件（watcher 仅作兜底）。
 - API 尚无 search facade、bootstrap SSE 专用恢复链和完整 provenance 查询。
 - `export-draft` 的真实文件落点与 `drafts/exported/` 目标合同还需核实/补齐。

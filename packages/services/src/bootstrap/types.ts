@@ -95,7 +95,7 @@ export interface BootstrapTrendReport {
 
 export interface BootstrapImportFileEntry {
   readonly sourcePath: string;
-  readonly detectedKind: 'project-brief' | 'world-foundation' | 'story-blueprint' | 'volume' | 'chapter' | 'reference';
+  readonly detectedKind: 'project-brief' | 'world-foundation' | 'story-blueprint' | 'volume' | 'chapter' | 'location' | 'reference';
   readonly canonicalTarget?: string | undefined;
   readonly confidence: number;
   readonly notes?: string | undefined;

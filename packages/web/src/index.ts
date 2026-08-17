@@ -1,4 +1,4 @@
-export * from './api-client';
+export * from './api-types';
 export * from './queue-priority';
 export * from './inline-edit-guard';
 export * from './ControlConsole';

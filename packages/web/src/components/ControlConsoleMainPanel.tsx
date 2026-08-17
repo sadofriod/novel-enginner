@@ -2,43 +2,33 @@
 import type { ReactNode } from 'react';
 
 import type { ArtifactSummary, RunRecord } from '@novel-enginner/services/runtime/store';
-import type { CommandAcceptedResponse, CommandResult } from '@novel-enginner/services/runtime/command-handler';
+import type { CommandAcceptedResponse } from '@novel-enginner/services/runtime/command-handler';
 import type { CommandRecord } from '@novel-enginner/services/runtime/store';
 
-import type { ApiClient } from '../api-client';
 import { InteractiveDerivedGraph } from '../app/components/InteractiveDerivedGraph';
 import { DerivedGraphView } from '../app/components/DerivedGraphView';
 import { ArtifactDetail, type ApprovalAction } from './ArtifactDetail';
 import { BundledDiffView } from './BundledDiffView';
-import { CommandOperationsPanel } from './CommandOperationsPanel';
 import { CommandReceiptPanel } from './CommandReceiptPanel';
 import { ProposalDiffView } from './ProposalDiffView';
 import { ReviewerResultView } from './ReviewerResultView';
 
 export interface ControlConsoleMainPanelProps {
   readonly selected: ArtifactSummary | undefined;
-  readonly apiClient: ApiClient | undefined;
-  readonly workspaceId: string | undefined;
-  readonly bookId: string | undefined;
   readonly lastCommand: CommandAcceptedResponse | undefined;
   readonly lastCommandRecord: CommandRecord | undefined;
   readonly lastCommandRun: RunRecord | undefined;
   readonly commandPanel: ReactNode | undefined;
   readonly onAction: (action: ApprovalAction, note?: string) => void;
-  readonly onCommandCompleted: (result: CommandResult) => Promise<void>;
 }
 
 export function ControlConsoleMainPanel({
   selected,
-  apiClient,
-  workspaceId,
-  bookId,
   lastCommand,
   lastCommandRecord,
   lastCommandRun,
   commandPanel,
   onAction,
-  onCommandCompleted,
 }: ControlConsoleMainPanelProps) {
   return (
     <main
@@ -48,14 +38,7 @@ export function ControlConsoleMainPanel({
       }}
     >
       <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#212121' }}>Web 控制台</h1>
-      {commandPanel ?? (apiClient === undefined ? null : (
-        <CommandOperationsPanel
-          apiClient={apiClient}
-          workspaceId={workspaceId}
-          bookId={bookId}
-          onCommandCompleted={onCommandCompleted}
-        />
-      ))}
+      {commandPanel}
       {lastCommand === undefined ? null : (
         <CommandReceiptPanel result={lastCommand} command={lastCommandRecord} run={lastCommandRun} />
       )}

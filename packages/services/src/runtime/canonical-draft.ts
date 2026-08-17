@@ -54,6 +54,90 @@ export function createBootstrapArtifactDraft(input: {
   return createValidatedCanonicalDraft({ proposalId: input.proposalId, relativePath, content: input.content });
 }
 
+function isBootstrapArtifact(artifactType: Proposal['artifactType']): artifactType is 'project-brief' | 'world-foundation' | 'story-blueprint' {
+  return artifactType === 'project-brief' || artifactType === 'world-foundation' || artifactType === 'story-blueprint';
+}
+
+function entityPathForArtifact(artifactType: Proposal['artifactType'], targetId: string): string | undefined {
+  const kind = CANONICAL_KIND_BY_ARTIFACT_TYPE[artifactType];
+  return kind === undefined ? undefined : resolveExpectedPath(kind, targetId);
+}
+
+const SPECIAL_PATH_BY_ARTIFACT_TYPE: Readonly<Partial<Record<Proposal['artifactType'], (targetId: string) => string>>> = {
+  'chapter-outline': (targetId) => `state/chapters/${targetId}.md`,
+  'volume-outline': (targetId) => `state/volumes/${targetId}.md`,
+};
+
+/**
+ * Resolves the single-file canonical path for an author-proposed artifact. Entity
+ * types derive their path from `kind + targetId`; bootstrap types use their fixed
+ * contract paths.
+ */
+export function resolveCanonicalPathForArtifact(artifactType: Proposal['artifactType'], targetId: string): string {
+  const bootstrapPath = BOOTSTRAP_PATH_BY_ARTIFACT_TYPE[artifactType];
+  if (bootstrapPath !== undefined) {
+    return bootstrapPath;
+  }
+  if (artifactType === 'chapter-manuscript') {
+    throw new CanonicalDraftValidationError('chapter-manuscript path requires volumeId from its content; use createChapterManuscriptDraft.');
+  }
+  const specialPath = SPECIAL_PATH_BY_ARTIFACT_TYPE[artifactType];
+  const expectedPath = specialPath === undefined
+    ? entityPathForArtifact(artifactType, targetId)
+    : specialPath(targetId);
+  if (expectedPath === undefined) {
+    throw new CanonicalDraftValidationError(`Artifact type "${artifactType}" has no single-file canonical draft.`);
+  }
+  return expectedPath;
+}
+
+function createSpecializedDraft(input: {
+  readonly proposalId: string;
+  readonly artifactType: Proposal['artifactType'];
+  readonly targetId: string;
+  readonly content: string;
+}): CanonicalDraft | undefined {
+  if (input.artifactType === 'chapter-outline') {
+    return createChapterOutlineDraft({ proposalId: input.proposalId, targetId: input.targetId, content: input.content });
+  }
+  if (input.artifactType === 'volume-outline') {
+    return createVolumeOutlineDraft({ proposalId: input.proposalId, targetId: input.targetId, content: input.content });
+  }
+  if (input.artifactType === 'chapter-manuscript') {
+    return createChapterManuscriptDraft({ proposalId: input.proposalId, targetId: input.targetId, content: input.content });
+  }
+  if (input.artifactType === 'world-change') {
+    throw new CanonicalDraftValidationError('world-change is a multi-file patch; it cannot be authored as a single canonical draft.');
+  }
+  return undefined;
+}
+
+/**
+ * Builds a validated canonical draft from content an author provided in the web
+ * console, dispatching to the per-artifact-type draft creator so the result is
+ * checked against the layout rule, kind, target id, and path contracts before it
+ * can become a proposal draft.
+ */
+export function createArtifactDraftFromContent(input: {
+  readonly proposalId: string;
+  readonly artifactType: Proposal['artifactType'];
+  readonly targetId: string;
+  readonly content: string;
+}): CanonicalDraft {
+  if (isBootstrapArtifact(input.artifactType)) {
+    return createBootstrapArtifactDraft({ proposalId: input.proposalId, artifactType: input.artifactType, content: input.content });
+  }
+  const specialized = createSpecializedDraft(input);
+  if (specialized !== undefined) {
+    return specialized;
+  }
+  const relativePath = resolveCanonicalPathForArtifact(input.artifactType, input.targetId);
+  return validateCanonicalDraftForProposal(
+    { proposalId: input.proposalId, relativePath, content: input.content },
+    { artifactType: input.artifactType, targetId: input.targetId },
+  );
+}
+
 export function validateCanonicalDraftForProposal(
   draft: CanonicalDraft,
   proposal: Pick<Proposal, 'artifactType' | 'targetId'>,

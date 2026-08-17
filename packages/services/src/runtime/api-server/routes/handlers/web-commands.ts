@@ -1,7 +1,9 @@
 /* eslint-disable complexity, max-lines-per-function */
 import { handleInlineEdit } from '../../proposal/proposal';
+import { resolveCanonicalPathForArtifact } from '../../../canonical-draft';
 import { jsonResponse, readFormValue, redirectResponse } from '../../transport/http';
 
+import type { Proposal } from '../../../../domain';
 import type { CommandCrossReferences, RouteHandlerDeps } from './context';
 
 const INLINE_EDIT_CHAR_LIMIT = 200;
@@ -46,7 +48,17 @@ export function createWebCommandHandlers(
 
     if (note !== undefined && note.trim().length > 0) {
       logger.debug({ artifactType, targetId, noteLength: note.trim().length }, 'Processing inline edit');
-      handleInlineEdit(store, artifactType, targetId, note.trim());
+      const outcome = handleInlineEdit(store, artifactType, targetId, note.trim());
+      if (outcome !== undefined && outcome.wasApprovedBeforeEdit) {
+        await dispatchInlineEditReview(logger, deps.dispatchSyntheticReview, {
+          workspaceId: readFormValue(form, 'workspaceId') ?? 'workspace-local',
+          bookId: readFormValue(form, 'bookId') ?? 'book-local',
+          artifactType: artifactType as Proposal['artifactType'],
+          targetId,
+          note: note.trim(),
+          ...(outcome.activeProposalId === undefined ? {} : { activeProposalId: outcome.activeProposalId }),
+        });
+      }
       logger.debug({ artifactType, targetId }, 'Inline edit processed');
     }
 
@@ -103,4 +115,36 @@ export function createWebCommandHandlers(
   }
 
   return { handleWebCommandAction, handleWebSystemCommand };
+}
+
+/** Queues a synthetic re-review for an approved artifact that was hand-edited inline. */
+async function dispatchInlineEditReview(
+  log: RouteHandlerDeps['logger'],
+  dispatch: RouteHandlerDeps['dispatchSyntheticReview'],
+  input: {
+    readonly workspaceId: string;
+    readonly bookId: string;
+    readonly artifactType: Proposal['artifactType'];
+    readonly targetId: string;
+    readonly note: string;
+    readonly activeProposalId?: string;
+  },
+): Promise<void> {
+  if (dispatch === undefined) {
+    return;
+  }
+  try {
+    await dispatch({
+      workspaceId: input.workspaceId,
+      bookId: input.bookId,
+      artifactType: input.artifactType,
+      targetId: input.targetId,
+      editedFilePath: resolveCanonicalPathForArtifact(input.artifactType, input.targetId),
+      editedText: input.note,
+      ...(input.activeProposalId === undefined ? {} : { proposalId: input.activeProposalId }),
+    });
+    log.info({ artifactType: input.artifactType, targetId: input.targetId }, 'Synthetic re-review dispatched after inline edit');
+  } catch (error) {
+    log.warn({ artifactType: input.artifactType, targetId: input.targetId, error }, 'Synthetic re-review dispatch failed');
+  }
 }

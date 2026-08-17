@@ -1,14 +1,28 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'bun:test';
 
-import { ApiClient } from '../api-client';
+import type { CommandApi } from '../api-types';
 import { CommandOperationsPanel } from './CommandOperationsPanel';
+
+const acceptedResponse = {
+  status: 'accepted' as const,
+  commandId: 'cmd-1',
+  runId: 'run-1',
+  acceptedAt: '2026-08-17T00:00:00.000Z',
+  nextExpectedState: 'proposal-pending',
+  sseChannel: '/runs/run-1/stream',
+};
+
+const commandApi: CommandApi = {
+  submitCommand: async () => acceptedResponse,
+  submitSync: async () => acceptedResponse,
+};
 
 describe('CommandOperationsPanel', () => {
   test('renders entries for every CLI-only command category', () => {
     const html = renderToStaticMarkup(
       <CommandOperationsPanel
-        apiClient={new ApiClient()}
+        apiClient={commandApi}
         workspaceId="workspace-1"
         bookId="book-1"
         onCommandCompleted={async () => undefined}

@@ -1,7 +1,17 @@
+import { type ProjectBrief, validateProjectBrief } from '../domain/canonical-artifacts';
+
 export interface DialogueRound {
   readonly round: number;
   readonly objective: string;
   readonly prompt: string;
+}
+
+export interface GenerateProjectBriefInput {
+  readonly decisions: Record<string, string | undefined>;
+  readonly bookId: string;
+  readonly id?: string;
+  readonly sourceResearchEvidenceIds?: readonly string[];
+  readonly assumptionIds?: readonly string[];
 }
 
 const REQUIRED_DECISIONS = [
@@ -68,30 +78,29 @@ function buildProjectBriefDefaults(decisions: Record<string, string | undefined>
   };
 }
 
-export function generateProjectBriefProposal(decisions: Record<string, string | undefined>): {
-  readonly id: string;
-  readonly title: string;
-  readonly genres: readonly string[];
-  readonly targetAudience: string;
-  readonly readerPromise: string;
-  readonly corePremise: string;
-  readonly openingHook: string;
-  readonly contentBoundaries: readonly string[];
-  readonly format: string;
-  readonly status: 'draft';
-} {
-  const defaults = buildProjectBriefDefaults(decisions);
+/**
+ * Builds a project-brief proposal that satisfies the ProjectBriefSchema contract
+ * (docs/architecture/modules/11-bootstrap-and-onboarding.md §11.5). The result is
+ * validated through `validateProjectBrief` so the canonical draft conversion in
+ * `createBootstrapArtifactDraft` can never reject it.
+ */
+export function generateProjectBriefProposal(input: GenerateProjectBriefInput): ProjectBrief {
+  const defaults = buildProjectBriefDefaults(input.decisions);
 
-  return {
-    id: `project-brief-${Date.now()}`,
+  return validateProjectBrief({
+    id: input.id ?? `project-brief-${input.bookId}`,
+    bookId: input.bookId,
     title: defaults.title,
     genres: defaults.genres,
     targetAudience: defaults.targetAudience,
+    marketScope: defaultString(input.decisions.marketScope, '中文网络连载市场'),
     readerPromise: defaults.readerPromise,
     corePremise: defaults.corePremise,
     openingHook: defaults.openingHook,
     contentBoundaries: defaults.contentBoundaries,
     format: defaults.format,
+    sourceResearchEvidenceIds: [...(input.sourceResearchEvidenceIds ?? [])],
+    assumptionIds: [...(input.assumptionIds ?? [])],
     status: 'draft',
-  };
+  });
 }

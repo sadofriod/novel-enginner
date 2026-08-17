@@ -21,6 +21,7 @@ import type { RouteHandlerDeps } from './handlers/context';
 import { createOverrideAuditHandlers } from './handlers/override-audits';
 import { createRedirectHandlers } from './handlers/redirects';
 import { createRunHandlers } from './handlers/runs';
+import { createSyntheticReviewHandlers } from './handlers/synthetic-reviews';
 import { createSyncHandlers } from './handlers/sync';
 import { createWebCommandHandlers } from './handlers/web-commands';
 
@@ -52,6 +53,7 @@ export function createApiServerRoutes(
   const bootstrapHandlers = createBootstrapHandlers(deps);
   const overrideAuditHandlers = createOverrideAuditHandlers(deps);
   const syncHandlers = createSyncHandlers(deps);
+  const syntheticReviewHandlers = createSyntheticReviewHandlers(deps);
   const webCommandHandlers = createWebCommandHandlers(deps, {
     handlePostCommand: commandHandlers.handlePostCommand,
     handleSyncCommand: syncHandlers.handleSyncCommand,
@@ -76,6 +78,7 @@ export function createApiServerRoutes(
     handleGetOverrideAudit: overrideAuditHandlers.handleGetOverrideAudit,
     handleRunStream: runHandlers.handleRunStream,
     handleSyncCommand: syncHandlers.handleSyncCommand,
+    handleSyntheticReviewOutcome: syntheticReviewHandlers.handleSyntheticReviewOutcome,
   };
 
   const routes = listRegisteredRoutes();

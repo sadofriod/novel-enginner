@@ -31,7 +31,7 @@ canonical Markdown
   -> Agent/Inngest
   -> reviewer / approval
   -> canonical commit
-  -> watcher re-sync
+  -> explicit re-sync (snapshot/validity)  + watcher 兜底
 ```
 
 已经具备较强实现证据的部分：
@@ -47,7 +47,7 @@ canonical Markdown
 尚未形成 V1 闭环的部分：
 
 - RuntimeStore 仍是默认进程内读模型，重启恢复不是完整数据库驱动。
-- bootstrap 阶段没有稳定推进到 project-brief 审批、Book 原子初始化和 ready-to-write。
+- bootstrap 已推进到 project-brief 审批、Book+brief+首快照原子初始化和 import/新书 ready-to-write 门禁；但 world-foundation 之后的 proposal 链仍非完整 artifact-specific 流程。
 - workflow 的多数 artifact facade 不是完整的 artifact-specific 生成流程，Reviewer 接线也不完整。
 - graph/search 缺少统一查询 facade、对外搜索 API 和已注册的 embedding worker。
 - Web 端部分 SPA 审批调用依赖 `workspaceId`/`bookId` 上下文，override audit、全量 E2E 和跨模块持久化事务仍不足。

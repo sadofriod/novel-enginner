@@ -25,7 +25,7 @@ Web 是独立的 React SPA，由 `packages/web/webpack.config.mjs` 构建；开�
 4. `command-handler.ts` 校验 `CommandEnvelope`、执行幂等检查、workspace guard，创建 command/run。
 5. `inngest-client.ts` 将部分 artifact/system command 转成事件；Inngest function 运行 Agent 并创建 Proposal/CanonicalDraft。
 6. proposal API/workflow 读取 ReviewerResult，处理 approve、reject、override-approve、export-draft。
-7. `canonical-commit.ts` 使用 staging、backup、rename 写入 canonical 文件；随后依赖 watcher 观察变更重新同步。
+7. `canonical-commit.ts` 使用 staging、backup、rename 写入 canonical 文件；commit 成功后 `proposal.ts` 会显式重读磁盘并调用 `reSyncState` 更新快照/validity，失败则发布可恢复的 `artifact.commit-failed` 事件；watcher 仍作为手工编辑的兜底同步通道。
 
 ## 3. 运行时事实
 

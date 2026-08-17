@@ -13,4 +13,19 @@ describe('bootstrap health report', () => {
   test('returns a safe priority sequence', () => {
     expect(generatePrioritySequence(['world-foundation', 'project-brief', 'project-brief'])).toEqual(['world-foundation', 'project-brief']);
   });
+
+  test('flags copied files that fail canonical validation as not ready', () => {
+    const report = generateReport([], [], [
+      { path: 'state/book/project-brief.md', reason: 'Frontmatter for "state/book/project-brief.md" failed validation.' },
+    ]);
+
+    expect(report.ready).toBe(false);
+    expect(report.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-state/book/project-brief.md',
+        severity: 'error',
+      }),
+    ]);
+    expect(canProceedToWriting(report)).toBe(false);
+  });
 });

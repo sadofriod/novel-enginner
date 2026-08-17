@@ -1,13 +1,13 @@
-import { useSubmitCommandMutation, useSubmitSyncMutation } from '../control-api';
-import type { ApiClient, CommandInput, SyncCommandInput } from '../api-client';
-import { CommandOperationsPanel } from './CommandOperationsPanel';
+import type { CommandResult } from '@novel-enginner/services/runtime/command-handler';
 
-type CommandApi = Pick<ApiClient, 'submitCommand' | 'submitSync'>;
+import { useSubmitCommandMutation, useSubmitSyncMutation } from '../control-api';
+import type { CommandApi, CommandInput, SyncCommandInput } from '../api-types';
+import { CommandOperationsPanel } from './CommandOperationsPanel';
 
 type RtkCommandOperationsPanelProps = {
   readonly workspaceId: string | undefined;
   readonly bookId: string | undefined;
-  readonly onCommandCompleted: (result: Awaited<ReturnType<ApiClient['submitCommand']>>) => Promise<void>;
+  readonly onCommandCompleted: (result: CommandResult) => Promise<void>;
 };
 
 export function RtkCommandOperationsPanel({

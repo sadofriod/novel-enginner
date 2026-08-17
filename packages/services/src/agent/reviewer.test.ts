@@ -7,6 +7,7 @@ import {
   computeReviewFreshnessAfterManualEdit,
   detectRuleHardFailures,
   DEFAULT_REVIEWER_RULE_THRESHOLDS,
+  isNonExemptibleReviewFailure,
   parseReviewerRules,
   TOTAL_SCORE_PASS_THRESHOLD,
 } from './reviewer';
@@ -114,5 +115,36 @@ describe('review freshness after manual edits', () => {
 
   test('manual edit to a not-yet-approved artifact stays fresh', () => {
     expect(computeReviewFreshnessAfterManualEdit(false)).toEqual({ status: 'fresh' });
+  });
+});
+
+describe('isNonExemptibleReviewFailure', () => {
+  test('a rejected, non-overridable result is a non-exemptible failure', () => {
+    const result = assembleReviewerResult(
+      'A stable paragraph that passes every rule bundle while remaining long enough for the deterministic length rule to accept it.',
+      { hardFailures: [{ code: 'clue-payoff-conflict', message: 'Clue never pays off.' }], dimensionScores: FAILING_SCORES, rewriteDirectives: [] },
+    );
+    expect(result.approved).toBe(false);
+    expect(result.overrideEligible).toBe(false);
+    expect(isNonExemptibleReviewFailure(result)).toBe(true);
+  });
+
+  test('a rejected but override-eligible result is exemptible', () => {
+    const result = assembleReviewerResult(
+      'A stable paragraph that passes every rule bundle while remaining long enough for the deterministic length rule to accept it.',
+      { hardFailures: [{ code: 'exposition-overload', message: 'Exposition is overloaded.' }], dimensionScores: FAILING_SCORES, rewriteDirectives: [] },
+    );
+    expect(result.approved).toBe(false);
+    expect(result.overrideEligible).toBe(true);
+    expect(isNonExemptibleReviewFailure(result)).toBe(false);
+  });
+
+  test('an approved result is never a non-exemptible failure', () => {
+    const result = assembleReviewerResult(
+      'A stable paragraph that passes every rule bundle while remaining long enough for the deterministic length rule to accept it.',
+      { hardFailures: [], dimensionScores: PASSING_SCORES, rewriteDirectives: [] },
+    );
+    expect(result.approved).toBe(true);
+    expect(isNonExemptibleReviewFailure(result)).toBe(false);
   });
 });

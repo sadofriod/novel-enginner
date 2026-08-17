@@ -41,6 +41,22 @@ emotionCurveStageIds: [emotion-0042-1, emotion-0042-2, emotion-0042-3, emotion-0
 The chapter advances the investigation.
 `;
 
+const VALID_TECH_RULE_MARKDOWN = `---
+id: tech-tide-clock
+name: Tide Clock
+tier: foundational
+preconditions: []
+costs: []
+limits: []
+allowedEffects: []
+status: active
+---
+
+# Rule
+
+The tide clock governs harbor ebb and flow.
+`;
+
 function postJson(fetch: (request: Request) => Promise<Response>, path: string, body: unknown): Promise<Response> {
   return fetch(
     new Request(`http://local.test${path}`, {
@@ -180,7 +196,11 @@ describe('command envelope validation', () => {
     const body = await response.json();
 
     expect(response.status).toBe(202);
-    expect(eventBus.history(body.runId).at(-1)?.type).toBe('run.step.failed');
+    const types = eventBus.history(body.runId).map((event) => event.type);
+    expect(types).toContain('run.step.failed');
+    expect(types).toContain('artifact.commit-failed');
+    expect(eventBus.history(body.runId).at(-1)?.type).toBe('artifact.commit-failed');
+    expect(eventBus.history(body.runId).at(-1)?.data).toMatchObject({ recoverable: true });
   });
 
   test('loads a canonical draft from the configured repository before approval commits', async () => {
@@ -226,6 +246,55 @@ describe('command envelope validation', () => {
     }
   });
 
+  test('explicitly re-syncs the workspace after a successful commit', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'novel-enginner-'));
+    const store = new RuntimeStore();
+    const snapshot = reSyncState([]).snapshot;
+    const proposal = {
+      proposalId: 'proposal-tech-rule-001',
+      artifactType: 'tech-rule-update' as const,
+      targetId: 'tech-tide-clock',
+      status: 'pending-approval' as const,
+      intent: 'propose' as const,
+      basedOnCanonicalVersion: snapshot.snapshotId,
+      parentRunId: 'run-proposal-tech-rule-001',
+    };
+    store.setLastKnownSnapshot(BASE_ENVELOPE.workspaceId, snapshot);
+    store.saveCanonicalDraft({
+      proposalId: proposal.proposalId,
+      relativePath: 'state/tech-rules/tech-tide-clock.md',
+      content: VALID_TECH_RULE_MARKDOWN,
+    });
+    const { fetch, store: apiStore } = createApiServer({
+      store,
+      workspaceRoot,
+      loadActiveProposal: async () => proposal,
+    });
+
+    try {
+      const response = await postJson(fetch, '/commands', {
+        workspaceId: BASE_ENVELOPE.workspaceId,
+        bookId: BASE_ENVELOPE.bookId,
+        artifactType: 'tech-rule-update',
+        targetId: 'tech-tide-clock',
+        intent: 'approve',
+        requestedBy: 'author-local',
+        approvalMode: 'manual',
+        idempotencyKey: 'cmd-commit-tech-rule-001',
+      });
+      expect(response.status).toBe(202);
+
+      const snapshotAfter = apiStore.getLastKnownSnapshot(BASE_ENVELOPE.workspaceId);
+      expect(snapshotAfter?.entities.has('state/tech-rules/tech-tide-clock.md')).toBe(true);
+      expect(snapshotAfter?.snapshotId).not.toBe(snapshot.snapshotId);
+      // The freshly committed file is new to the engine, so it is pending
+      // acknowledgement (`dirty`) rather than `clean`, but it is not `invalid`.
+      expect(apiStore.getWorkspaceValidity(BASE_ENVELOPE.workspaceId)).toBe('dirty');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   test('keeps an approval retryable when its canonical draft is unavailable', async () => {
     const store = new RuntimeStore();
     const snapshot = reSyncState([]).snapshot;
@@ -263,7 +332,10 @@ describe('command envelope validation', () => {
       canonicalStatus: 'draft',
     });
     expect(persistedStatuses).toEqual(['approved']);
-    expect(eventBus.history(body.runId).at(-1)?.data).toEqual({
+    const lastEvent = eventBus.history(body.runId).at(-1);
+    expect(lastEvent?.type).toBe('artifact.commit-failed');
+    expect(lastEvent?.data).toMatchObject({
+      recoverable: true,
       reason: 'canonical draft not found for proposal proposal-chapter-0042-missing-draft',
     });
   });

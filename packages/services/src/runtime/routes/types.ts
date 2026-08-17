@@ -19,6 +19,7 @@ export interface RouteApi {
   handleGetOverrideAudit(overrideAuditId: string): Promise<Response>;
   handleRunStream(runId: string, request: Request): Response;
   handleSyncCommand(syncIntent: string, request: Request): Promise<Response>;
+  handleSyntheticReviewOutcome(request: Request): Promise<Response>;
 }
 
 export interface RuntimeRouteContext {

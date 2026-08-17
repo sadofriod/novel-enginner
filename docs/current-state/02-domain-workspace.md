@@ -30,11 +30,11 @@ schema 的作用是同时约束 Markdown parser、命令入口、workflow 输出
 
 | 目标要求 | 当前实现 | 状态 |
 | --- | --- | --- |
-| commit 后可靠 re-sync | 主要依赖 watcher 观察文件变化，缺少显式 commit-after-resync 链路 | 部分实现 |
+| commit 后可靠 re-sync | commit 成功后显式重读磁盘并 `reSyncState` 更新快照/validity，失败发布 `artifact.commit-failed`（recoverable） | 已实现 |
 | bundle 语义一致性 | 有 staging/rollback/lane，但缺少 bundle 内部冲突与 proposal 语义一致性校验 | 部分实现 |
 | session 可恢复 | snapshot 可恢复，pending synthetic 聚合状态为进程内 | 部分实现 |
 | 领域 cross-field 合同 | 部分约束在 `command-handler.ts`，不全在 domain schema | 部分实现 |
-| bootstrap artifact 合同 | `generateProjectBriefProposal()` 当前输出缺少共享 schema 所需字段 | 缺陷 |
+| bootstrap artifact 合同 | `generateProjectBriefProposal()` 输出满足共享 schema（bookId/marketScope/evidence/assumptions），审批时原子初始化 Book+brief+首快照 | 已实现 |
 
 ## 5. 相关测试
 

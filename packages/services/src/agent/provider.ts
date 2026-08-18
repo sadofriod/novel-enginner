@@ -9,7 +9,8 @@
  */
 
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateText } from 'ai';
+import { generateText, tool } from 'ai';
+import { z } from 'zod';
 
 import { loadModelConfig, type ModelConfig } from './model-config';
 
@@ -38,15 +39,46 @@ export interface ModelCompletionResult {
   readonly providerVersion: string;
 }
 
+/** A tool schema the model can call, with a zod-validated parameters contract. */
+export interface ModelToolDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: z.ZodTypeAny;
+}
+
+export interface ModelToolCallRequest {
+  readonly tier: ModelTier;
+  readonly system?: string;
+  readonly prompt: string;
+  readonly tools: readonly ModelToolDefinition[];
+  /** Max tool-calling steps (the model may call tools repeatedly). Defaults to 3. */
+  readonly maxSteps?: number;
+  /** Executes a requested tool and returns its text result. */
+  readonly executeTool: (name: string, args: unknown) => Promise<string>;
+}
+
+export interface ModelToolCallResult {
+  readonly text: string;
+  readonly modelId: string;
+  readonly providerVersion: string;
+  /** Number of tool calls executed during the round trip. */
+  readonly toolCalls: number;
+}
+
 /**
  * Minimal seam every model provider implementation must satisfy. Kept intentionally
- * small (single `complete` method) so mocking in tests and swapping providers stays cheap.
+ * small so mocking in tests and swapping providers stays cheap.
+ *
+ * `completeWithTools` is optional: providers that do not support tool calling simply
+ * omit it, and the assembly layer degrades to `complete` (per the flagship+balanced
+ * tool-calling scope).
  */
 export interface ModelProvider {
   readonly providerId: string;
   readonly providerVersion: string;
   resolveModelId(tier: ModelTier): string;
   complete(request: ModelCompletionRequest): Promise<ModelCompletionResult>;
+  completeWithTools?(request: ModelToolCallRequest): Promise<ModelToolCallResult>;
 }
 
 export class ProviderConfigError extends Error {
@@ -83,17 +115,24 @@ export class OpenAiModelProvider implements ModelProvider {
     return this.modelByTier[tier];
   }
 
-  async complete(request: ModelCompletionRequest): Promise<ModelCompletionResult> {
+  private requireApiKey(): string {
     if (this.apiKey === undefined) {
       throw new ProviderConfigError(
         'OpenAI provider requires an apiKey; set OPENAI_API_KEY or pass one explicitly.',
       );
     }
+    return this.apiKey;
+  }
 
-    const openai = createOpenAI({
-      apiKey: this.apiKey,
+  private buildOpenAI(): ReturnType<typeof createOpenAI> {
+    return createOpenAI({
+      apiKey: this.requireApiKey(),
       ...(this.baseUrl === undefined ? {} : { baseURL: this.baseUrl }),
     });
+  }
+
+  async complete(request: ModelCompletionRequest): Promise<ModelCompletionResult> {
+    const openai = this.buildOpenAI();
     const result = await generateText({
       model: openai(this.resolveModelId(request.tier)),
       ...(request.system === undefined ? {} : { system: request.system }),
@@ -106,6 +145,40 @@ export class OpenAiModelProvider implements ModelProvider {
       text: result.text,
       modelId: this.resolveModelId(request.tier),
       providerVersion: this.providerVersion,
+    };
+  }
+
+  async completeWithTools(request: ModelToolCallRequest): Promise<ModelToolCallResult> {
+    const openai = this.buildOpenAI();
+    let toolCallCount = 0;
+    const tools = Object.fromEntries(
+      request.tools.map((toolDef) => [
+        toolDef.name,
+        tool({
+          description: toolDef.description,
+          parameters: toolDef.parameters,
+          execute: async (args) => {
+            toolCallCount += 1;
+            return request.executeTool(toolDef.name, args);
+          },
+        }),
+      ]),
+    );
+    const hasTools = Object.keys(tools).length > 0;
+    const result = await generateText({
+      model: openai(this.resolveModelId(request.tier)),
+      ...(request.system === undefined ? {} : { system: request.system }),
+      prompt: request.prompt,
+      ...(hasTools ? { tools, maxSteps: request.maxSteps ?? 3 } : {}),
+      maxRetries: 0,
+      ...(this.timeoutMs === undefined ? {} : { timeout: this.timeoutMs }),
+    });
+
+    return {
+      text: result.text,
+      modelId: this.resolveModelId(request.tier),
+      providerVersion: this.providerVersion,
+      toolCalls: toolCallCount,
     };
   }
 

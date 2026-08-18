@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import type { ModelProvider } from '../agent/provider';
 import { reSyncState } from '../workspace/sync-engine';
 import { RunEventBus } from './event-bus';
-import { tryApplyOptimizeArtifact } from './optimize-proposal';
+import { buildOptimizeInstructions, tryApplyOptimizeArtifact } from './optimize-proposal';
 import { RuntimeStore } from './store';
 
 const WORKSPACE_ID = 'workspace-optimize-001';
@@ -30,6 +30,25 @@ emotionCurveStageIds: [emotion-0001-1, emotion-0001-2, emotion-0001-3, emotion-0
 The chapter opens at the harbor.
 `;
 
+const VALID_MANUSCRIPT_SHELL = `---
+id: chapter-0001
+chapterNumber: 1
+volumeId: volume-001
+basedOnOutlineId: chapter-0001-outline
+status: draft
+displayTitle: 修复师的日常
+basedOnCanonicalVersion: snap-0001
+sceneAnchorIds:
+  - scene-chapter-0001-source
+---
+
+# Scene scene-chapter-0001-source
+
+原始正文段落。
+`;
+
+const LLM_PLAIN_PROSE = '凯走进旧货市场，手指划过废弃的生物电极组件。空气中弥漫着金属锈蚀的气味。\n\n"这根校准线还能用？"凯拿起线缆问道。';
+
 function fakeProvider(text: string, fail = false): ModelProvider {
   return {
     providerId: 'fake',
@@ -49,6 +68,15 @@ function setup() {
   store.setLastKnownSnapshot(WORKSPACE_ID, reSyncState([]).snapshot);
   return { store, eventBus: new RunEventBus() };
 }
+
+describe('buildOptimizeInstructions', () => {
+  test('demands a substantive rewrite with AI-flavor filler removal', () => {
+    const instructions = buildOptimizeInstructions('chapter-0001', 'chapter-manuscript');
+    expect(instructions).toContain('SUBSTANTIVE revision');
+    expect(instructions).toContain('仿佛');
+    expect(instructions).toContain('canonical identity');
+  });
+});
 
 describe('tryApplyOptimizeArtifact', () => {
   test('creates a pending-approval generated proposal with the optimized draft', async () => {
@@ -98,6 +126,35 @@ describe('tryApplyOptimizeArtifact', () => {
     expect(result).toBeUndefined();
     expect(store.getProposal('proposal-run-optimize-002')).toBeUndefined();
     expect(eventBus.history('run-optimize-002').some((event) => event.type === 'run.step.failed')).toBe(true);
+  });
+
+  test('creates a manuscript proposal when the model returns plain prose', async () => {
+    const { store, eventBus } = setup();
+    const result = await tryApplyOptimizeArtifact({
+      store,
+      eventBus,
+      runId: 'run-optimize-004',
+      workspaceId: WORKSPACE_ID,
+      bookId: BOOK_ID,
+      artifactType: 'chapter-manuscript',
+      targetId: 'chapter-0001',
+      provider: fakeProvider(LLM_PLAIN_PROSE),
+      options: {
+        readCanonicalFiles: async () => [{ path: 'manuscript/volume-001/chapter-0001.md', content: VALID_MANUSCRIPT_SHELL }],
+      },
+    });
+
+    expect(result?.proposalId).toBe('proposal-run-optimize-004');
+    const draft = store.getCanonicalDraft('proposal-run-optimize-004');
+    expect(draft?.relativePath).toBe('manuscript/volume-001/chapter-0001.md');
+    expect(draft?.content).toContain(LLM_PLAIN_PROSE);
+    expect(draft?.content).toContain('id: chapter-0001');
+    const artifact = store.getArtifact('chapter-manuscript', 'chapter-0001');
+    expect(artifact?.activeProposalId).toBe('proposal-run-optimize-004');
+    expect(artifact?.proposalStatus).toBe('pending-approval');
+    expect(artifact?.proposalDetail?.basedOnCanonicalVersion).toBe('snap-0001');
+    expect(artifact?.proposalDetail?.diffs.some((diff) => diff.field === 'content' && diff.changed)).toBe(true);
+    expect(result?.events.some((event) => event.type === 'proposal.optimized')).toBe(true);
   });
 
   test('rejects artifact types that cannot be optimized as a single-file proposal', async () => {

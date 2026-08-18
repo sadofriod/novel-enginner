@@ -5,6 +5,7 @@
  * (routes/handlers/*) into the `RouteApi` consumed by the route table and
  * provides the request dispatch middleware.
  */
+import { describeError } from '../../../common/errors';
 import { createChildLogger } from '../../../common/logger';
 import { listRegisteredRoutes } from '../../routes';
 import { matchRoute } from '../../routes/match-route';
@@ -117,14 +118,15 @@ export function createApiServerRoutes(
       return response;
     } catch (error) {
       const duration = performance.now() - startTime;
+      const detail = describeError(error);
       logger.error({
         method,
         pathname,
         duration: duration.toFixed(2),
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
+        error: detail.message,
+        stack: detail.stack,
       }, 'HTTP request failed');
-      return jsonResponse({ status: 'rejected', code: 'internal-error', message: 'Internal server error' }, 500);
+      return jsonResponse({ status: 'rejected', code: 'internal-error', message: detail.message }, 500);
     }
   }
 

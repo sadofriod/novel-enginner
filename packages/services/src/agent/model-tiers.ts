@@ -34,6 +34,16 @@ export function resolveModelTierForRole(role: AgentRole): ModelTier {
 }
 
 /**
+ * Tiers that support tool calling, per the refined assembly contract: only
+ * flagship and balanced expose tools; economy degrades to plain text.
+ */
+const TOOL_CALLING_TIERS: ReadonlySet<ModelTier> = new Set(['flagship', 'balanced']);
+
+export function isToolCallingTier(tier: ModelTier): boolean {
+  return TOOL_CALLING_TIERS.has(tier);
+}
+
+/**
  * Default external MCP server ids allowed per role. Per §8.6:
  * - WorldBuilder / PlotPlanner / Reviewer default to the limited external scope
  *   (`cloakbrowser` in V1).

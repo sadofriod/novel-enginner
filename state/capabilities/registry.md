@@ -9,6 +9,50 @@ capabilities:
       - plot-planner
       - reviewer
     applicableArtifactTypes: []
+  - id: world-builder
+    type: agent
+    enabled: true
+    visibility: restricted
+    applicableArtifactTypes:
+      - world-foundation
+      - story-blueprint
+      - world-change
+      - chapter-outline
+  - id: plot-planner
+    type: agent
+    enabled: true
+    visibility: restricted
+    applicableArtifactTypes:
+      - chapter-outline
+      - volume-outline
+  - id: actor
+    type: agent
+    enabled: true
+    visibility: restricted
+    applicableArtifactTypes:
+      - chapter-outline
+      - chapter-manuscript
+  - id: update-actor
+    type: agent
+    enabled: true
+    visibility: restricted
+    applicableArtifactTypes:
+      - chapter-manuscript
+  - id: drafter
+    type: agent
+    enabled: true
+    visibility: restricted
+    applicableArtifactTypes:
+      - chapter-manuscript
+  - id: reviewer
+    type: agent
+    enabled: true
+    visibility: restricted
+    applicableArtifactTypes:
+      - chapter-manuscript
+      - chapter-outline
+      - volume-outline
+      - world-change
 ---
 
 # Capability Registry

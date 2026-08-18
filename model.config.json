@@ -4,8 +4,8 @@
   "apiKey": "LM-studio",
   "timeoutMs": 600000,
   "models": {
-    "flagship": "google/gemma-4-12b",
-    "balanced": "google/gemma-4-12b",
+    "flagship": "google/gemma-4-26b-a4b-qat",
+    "balanced": "google/gemma-4-26b-a4b-qat",
     "economy": "qwen2.5-0.5b-instruct-mlx"
   }
 }

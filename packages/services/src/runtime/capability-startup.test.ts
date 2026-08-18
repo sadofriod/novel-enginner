@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -55,5 +55,21 @@ describe('validateCapabilityStartup', () => {
       expect.objectContaining({ capabilityId: 'world-builder', status: 'discovered-unregistered' }),
       expect.objectContaining({ capabilityId: 'editorial-pack', status: 'discovered-unregistered' }),
     ]));
+  });
+
+  test('registers the six system agent roles against the real repository', () => {
+    const workspaceRoot = process.cwd();
+    const registryMarkdown = readFileSync(join(workspaceRoot, 'state/capabilities/registry.md'), 'utf8');
+    const mcpConfig = JSON.parse(readFileSync(join(workspaceRoot, 'mcp.json'), 'utf8')) as {
+      servers?: Record<string, unknown>;
+    };
+    const result = validateCapabilityStartup(registryMarkdown, mcpConfig, workspaceRoot);
+
+    expect(result.blockingCapabilityIds).toEqual([]);
+    for (const role of ['world-builder', 'plot-planner', 'actor', 'update-actor', 'drafter', 'reviewer'] as const) {
+      expect(result.snapshots).toEqual(
+        expect.arrayContaining([expect.objectContaining({ capabilityId: role, status: 'registered' })]),
+      );
+    }
   });
 });

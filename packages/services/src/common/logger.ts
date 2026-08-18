@@ -4,7 +4,7 @@ type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'trace';
 
 const LOG_LEVEL = (process.env['LOG_LEVEL'] ?? 'info') as LogLevel;
 
-const isDevelopment = process.env['NODE_ENV'] !== 'production';
+const isDevelopment = process.env['NODE_ENV'] !== 'production' && process.env['NODE_ENV'] !== 'test';
 
 /**
  * Create a root logger instance for the backend

@@ -1,12 +1,13 @@
-/* eslint-disable complexity */
+import ReactDiffViewer from 'react-diff-viewer-continued';
 
 import type { ArtifactFieldDiff, ArtifactEntityVersionRef } from '@novel-enginner/services/runtime/artifact-detail';
 
 /**
  * Proposal diff view (docs/architecture/modules/06-web-console-and-approval.md §6.8):
- * shows the "proposal vs canonical" diff in the artifact detail page. V1 displays a
- * structured field-by-field comparison rather than a raw text diff, since proposals are
- * structured JSON/Markdown objects rather than free text.
+ * shows the "proposal vs canonical" diff in the artifact detail page. V1 renders each
+ * changed field with an open-source GitHub-style line diff
+ * (`react-diff-viewer-continued`) instead of raw text blocks, so added/removed lines
+ * are highlighted like a GitHub pull request.
  */
 
 export interface ProposalDiffViewProps {
@@ -18,30 +19,28 @@ export interface ProposalDiffViewProps {
   readonly entityVersionRefs?: readonly ArtifactEntityVersionRef[] | undefined;
 }
 
-function DiffRow({ field, canonical, proposed, changed }: ArtifactFieldDiff) {
+/** Coerces a diff value to text; objects are pretty-printed so the line diff stays readable. */
+function valueToText(value: unknown): string {
+  if (value === undefined) {
+    return '';
+  }
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
+function FieldDiff({ diff }: { readonly diff: ArtifactFieldDiff }) {
   return (
-    <tr className={changed ? 'diff-row diff-changed' : 'diff-row diff-unchanged'}>
-      <td className="diff-field">
-        <code>{field}</code>
-        {changed && <span className="diff-badge">changed</span>}
-      </td>
-      <td className="diff-canonical">
-        {canonical !== undefined ? (
-          <pre className="diff-value">{typeof canonical === 'string' ? canonical : JSON.stringify(canonical, null, 2)}</pre>
-        ) : (
-          <span className="diff-empty">—</span>
-        )}
-      </td>
-      <td className="diff-proposed">
-        {proposed !== undefined ? (
-          <pre className={changed ? 'diff-value diff-value-changed' : 'diff-value'}>
-            {typeof proposed === 'string' ? proposed : JSON.stringify(proposed, null, 2)}
-          </pre>
-        ) : (
-          <span className="diff-empty">—</span>
-        )}
-      </td>
-    </tr>
+    <div className="diff-field-block">
+      <div className="diff-field-head">
+        <code>{diff.field}</code>
+        {diff.changed && <span className="diff-badge">changed</span>}
+      </div>
+      <ReactDiffViewer
+        oldValue={valueToText(diff.canonical)}
+        newValue={valueToText(diff.proposed)}
+        splitView={false}
+        showDiffOnly
+      />
+    </div>
   );
 }
 
@@ -85,32 +84,11 @@ export function ProposalDiffView({
         </section>
       )}
 
-      <table className="diff-table">
-        <thead>
-          <tr>
-            <th scope="col">字段</th>
-            <th scope="col">当前 canonical</th>
-            <th scope="col">Proposal 内容</th>
-          </tr>
-        </thead>
-        <tbody>
-          {diffs.length === 0 ? (
-            <tr>
-              <td colSpan={3} className="diff-empty">暂无字段对比数据。</td>
-            </tr>
-          ) : (
-            diffs.map((diff) => (
-              <DiffRow
-                key={diff.field}
-                field={diff.field}
-                canonical={diff.canonical}
-                proposed={diff.proposed}
-                changed={diff.changed}
-              />
-            ))
-          )}
-        </tbody>
-      </table>
+      {diffs.length === 0 ? (
+        <p className="diff-empty">暂无字段对比数据。</p>
+      ) : (
+        diffs.map((diff) => <FieldDiff key={diff.field} diff={diff} />)
+      )}
     </section>
   );
 }

@@ -10,6 +10,8 @@ import type { ProposalArtifactType } from '@novel-enginner/services/domain/value
 
 import type { RootState } from '../../store';
 import { ApprovalQueue, artifactKey, isActionableProposal } from '../../components/ApprovalQueue';
+import { BundledDiffView } from '../../components/BundledDiffView';
+import { ProposalDiffView } from '../../components/ProposalDiffView';
 import { RunTracePanel } from '../../components/RunTracePanel';
 import { InteractiveDerivedGraph } from './InteractiveDerivedGraph';
 import { CapabilityRegistryView } from './capability-registry-view';
@@ -304,6 +306,22 @@ function ApprovalTab({
               {shownFeedback.message}
             </Alert>
           )}
+          {isActionableProposal(selected) ? (
+            <Box sx={{ display: 'grid', gap: 1.5 }}>
+              <ProposalDiffView
+                proposalId={selected.activeProposalId ?? 'proposal-missing'}
+                artifactType={selected.artifactType}
+                targetId={selected.targetId}
+                basedOnCanonicalVersion={selected.proposalDetail?.basedOnCanonicalVersion ?? 'unknown'}
+                diffs={selected.proposalDetail?.diffs ?? []}
+                entityVersionRefs={selected.proposalDetail?.entityVersionRefs}
+              />
+              <BundledDiffView
+                proposalId={selected.activeProposalId ?? 'proposal-missing'}
+                entries={selected.bundledDiff ?? []}
+              />
+            </Box>
+          ) : null}
         </Paper>
       )}
     </Box>

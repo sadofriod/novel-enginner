@@ -3,6 +3,7 @@ import type { CommandEnvelope, Proposal, ReviewerResult } from '../../../domain'
 import type { WorkspaceValidity } from '../../../domain/values';
 import { assembleReviewerResult, DEFAULT_REVIEWER_RULE_THRESHOLDS } from '../../../agent/reviewer';
 import { requestReviewerModelEvidence } from '../../../agent/reviewer-agent';
+import { resolveRoleTemplate } from '../../../agent/role-template';
 import { loadReviewerRules } from '../../../agent/reviewer-rules-loader';
 import { findActiveProposalForTarget, findPersistedCanonicalDraft, findPersistedReviewerResult, persistProposal } from '../../../persistence/operations';
 import { findProposal } from '../../../persistence/proposals';
@@ -260,7 +261,11 @@ async function ensureModelEvidenceReview(input: EnsureModelEvidenceReviewInput):
   if (draft === undefined) {
     return { proposal: input.proposal };
   }
-  const evidence = await requestReviewerModelEvidence(provider, input.proposal.artifactType, draft.content);
+  // Feed the Reviewer role template (agents/reviewer.agent.md) into the model call
+  // so the documented role instructions (quality gates, hard-failure rules, override
+  // semantics) actually shape the reviewer evidence instead of a bare prompt.
+  const roleTemplate = await resolveRoleTemplate(input.options.workspaceRoot ?? process.cwd(), 'reviewer');
+  const evidence = await requestReviewerModelEvidence(provider, input.proposal.artifactType, draft.content, roleTemplate);
   let rules = DEFAULT_REVIEWER_RULE_THRESHOLDS;
   try {
     rules = await loadReviewerRules(input.options.workspaceRoot ?? process.cwd());

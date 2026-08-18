@@ -1,6 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 
-import { parseReviewerModelEvidence } from './reviewer-agent';
+import type { ModelProvider } from './provider';
+import { parseReviewerModelEvidence, requestReviewerModelEvidence } from './reviewer-agent';
+
+function mockProvider(completionText: string): ModelProvider {
+  return {
+    providerId: 'mock',
+    providerVersion: '1',
+    resolveModelId: () => 'mock',
+    complete: async () => ({ text: completionText, modelId: 'mock', providerVersion: '1' }),
+  };
+}
 
 const EVIDENCE = JSON.stringify({
   hardFailures: [],
@@ -19,5 +29,22 @@ describe('parseReviewerModelEvidence', () => {
   test('rejects malformed or incomplete model evidence instead of defaulting a passing score', () => {
     expect(() => parseReviewerModelEvidence('not-json')).toThrow('valid JSON');
     expect(() => parseReviewerModelEvidence('{"hardFailures":[]}')).toThrow();
+  });
+
+  test('accepts markdown-fenced JSON as models commonly wrap their response', () => {
+    const fenced = `\`\`\`json\n${EVIDENCE}\n\`\`\``;
+    expect(parseReviewerModelEvidence(fenced).dimensionScores.emotionCurve).toBe(86);
+  });
+
+  test('surfaces the raw model output in the parse error instead of a bare signal', () => {
+    expect(() => parseReviewerModelEvidence('not-json')).toThrow(/Raw model output:/);
+  });
+});
+
+describe('requestReviewerModelEvidence', () => {
+  test('parses a markdown-fenced model response through the full request path', async () => {
+    const provider = mockProvider(`\`\`\`json\n${EVIDENCE}\n\`\`\``);
+    const evidence = await requestReviewerModelEvidence(provider, 'chapter-manuscript', 'prose');
+    expect(evidence.dimensionScores.emotionCurve).toBe(86);
   });
 });

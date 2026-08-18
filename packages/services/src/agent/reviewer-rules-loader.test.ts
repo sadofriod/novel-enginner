@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { detectRuleHardFailures } from './reviewer';
 import { loadReviewerRules } from './reviewer-rules-loader';
 
 describe('loadReviewerRules', () => {
@@ -24,5 +25,25 @@ describe('loadReviewerRules', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('real repository AI-flavor banned terms', () => {
+  // docs/architecture/modules/05-reviewer-and-quality-gates.md §5.2/§5.5: the
+  // project-level blacklist is machine-enforced from state/reviewer/rules.json.
+  test('loads at least 25 high-signal AI-flavor banned terms', async () => {
+    const rules = await loadReviewerRules(process.cwd());
+    expect(rules.bannedTerms.length).toBeGreaterThanOrEqual(25);
+    expect(rules.bannedTerms).toContain('仿佛');
+    expect(rules.bannedTerms).toContain('不禁');
+    expect(rules.bannedTerms).toContain('深邃');
+    expect(rules.bannedTerms).toContain('难以言喻');
+    expect(rules.bannedTerms).toContain('这一刻');
+  });
+
+  test('real rules make detectRuleHardFailures flag banned-terms-hit', async () => {
+    const rules = await loadReviewerRules(process.cwd());
+    const failures = detectRuleHardFailures('她仿佛看见了什么，心头一紧，难以言喻。', rules);
+    expect(failures.map((failure) => failure.code)).toContain('banned-terms-hit');
   });
 });

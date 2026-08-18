@@ -48,6 +48,13 @@ code{font-family:ui-monospace,monospace;font-size:0.85em;background:#f5f5f5;padd
 .diff-table th,.bundled-fields-table th{background:#fafafa;font-weight:600}
 .diff-value,.bundled-field-value{white-space:pre-wrap;margin:0}
 
+/* GitHub-style field diffs (react-diff-viewer-continued) */
+.diff-field-block{display:grid;gap:4px;margin:8px 0}
+.diff-field-block .diff-field-head{display:flex;align-items:center;gap:8px;font-size:12px}
+.diff-field-block .diff-field-head code{font-weight:600;color:#424242}
+.diff-field-block .diff-badge{background:#ffebee;color:#c62828;padding:1px 6px;border-radius:10px;font-size:11px;font-weight:600}
+.diff-field-block .diff-field-head + div{font-size:12px;line-height:1.5;overflow-x:auto;border:1px solid #e0e0e0;border-radius:4px}
+
 /* Run trace */
 .run-trace-list,.bundled-diff-list{padding-left:18px}
 

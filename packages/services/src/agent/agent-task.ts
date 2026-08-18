@@ -1,5 +1,12 @@
 import type { ModelProvider, ModelCompletionResult } from './provider';
 import { assemblePromptLayers, resolveModelTierForRole, type AgentRole, type PromptLayerInput } from './model-tiers';
+import {
+  isProseArtifactType,
+  loadProsePolicyLayers,
+  resolveProjectPolicy,
+  resolveSystemRules,
+} from './prose-rules';
+import { resolveRoleTemplate } from './role-template';
 
 export type AgentTaskInput = {
   readonly role: AgentRole;
@@ -10,6 +17,11 @@ export type AgentTaskInput = {
   readonly capabilityIds?: readonly string[];
   readonly systemRules?: string;
   readonly projectPolicy?: string;
+  /**
+   * Workspace root used to resolve `agents/<role>.agent.md`. Defaults to
+   * `NOVEL_WORKSPACE_ROOT`, then `process.cwd()`, matching `loadReviewerRules`.
+   */
+  readonly workspaceRoot?: string;
 };
 
 export type AgentTaskResult = {
@@ -21,11 +33,16 @@ export type AgentTaskResult = {
   readonly providerVersion: string;
 };
 
-function buildPrompt(input: AgentTaskInput): string {
+function buildPrompt(
+  input: AgentTaskInput,
+  roleTemplate: string,
+  systemRules: string,
+  projectPolicy: string,
+): string {
   const layers: PromptLayerInput[] = [
-    { layer: 'system-hard-rules', content: input.systemRules ?? 'Return only work relevant to the requested artifact.' },
-    { layer: 'project-policy', content: input.projectPolicy ?? 'Canonical Markdown is the source of truth; do not invent missing facts.' },
-    { layer: 'agent-role-template', content: `You are the ${input.role} agent.` },
+    { layer: 'system-hard-rules', content: systemRules },
+    { layer: 'project-policy', content: projectPolicy },
+    { layer: 'agent-role-template', content: roleTemplate },
     { layer: 'artifact-type-template', content: `Work on ${input.artifactType} target ${input.targetId}.` },
     {
       layer: 'task-parameters',
@@ -43,10 +60,17 @@ export async function executeAgentTask(
   input: AgentTaskInput,
   provider: ModelProvider,
 ): Promise<AgentTaskResult> {
+  const workspaceRoot = input.workspaceRoot ?? process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd();
+  const proseLayers = isProseArtifactType(input.artifactType)
+    ? await loadProsePolicyLayers(workspaceRoot)
+    : undefined;
+  const roleTemplate = await resolveRoleTemplate(workspaceRoot, input.role);
+  const systemRules = resolveSystemRules(input.systemRules, proseLayers);
+  const projectPolicy = resolveProjectPolicy(input.projectPolicy, proseLayers);
   const completion: ModelCompletionResult = await provider.complete({
     tier: resolveModelTierForRole(input.role),
     system: `You are a constrained ${input.role} in a novel writing workflow.`,
-    prompt: buildPrompt(input),
+    prompt: buildPrompt(input, roleTemplate, systemRules, projectPolicy),
   });
 
   return {

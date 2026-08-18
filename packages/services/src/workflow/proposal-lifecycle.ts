@@ -150,10 +150,15 @@ export function evaluateApprovability(
   }
 
   if (reviewerResult !== undefined && !reviewerResult.approved && !isOverride) {
+    const failures = reviewerResult.hardFailures
+      .map((failure) => `${failure.code}（${failure.message}）`)
+      .join('；');
     return {
       eligible: false,
       reason: 'review-rejected',
-      message: `Proposal "${proposal.proposalId}" cannot be normally approved because its latest review was rejected.`,
+      message:
+        `Proposal "${proposal.proposalId}" cannot be normally approved because its latest review was rejected` +
+        (failures.length === 0 ? '.' : `：${failures}`),
     };
   }
 

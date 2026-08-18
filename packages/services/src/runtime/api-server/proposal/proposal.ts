@@ -14,19 +14,22 @@ import { RunEventBus } from '../../event-bus';
 import { RuntimeStore } from '../../store';
 import type { CreateApiServerOptions } from '../types';
 
-export function resolveProposalStatus(intent: CommandEnvelope['intent'], validity: WorkspaceValidity): string {
-  if (intent === 'approve' || intent === 'override-approve') return validity === 'dirty' ? 'waiting-sync' : validity === 'invalid' ? 'commit-blocked' : intent === 'approve' ? 'approved' : 'override-approved';
-  if (intent === 'reject') return 'rejected';
-  if (intent === 'export-draft') return 'exported';
-  return 'pending-approval';
-}
-
-export function syncArtifactSummary(store: RuntimeStore, _eventBus: RunEventBus, envelope: CommandEnvelope, result: CommandResult, getWorkspaceValidity: (workspaceId: string) => WorkspaceValidity): void {
+export function syncArtifactSummary(store: RuntimeStore, _eventBus: RunEventBus, envelope: CommandEnvelope, result: CommandResult): void {
   if (result.status !== 'accepted' || envelope.artifactType === undefined || envelope.targetId === undefined) return;
   const existing = store.getArtifact(envelope.artifactType, envelope.targetId);
-  const proposalIntent = envelope.intent === 'propose' || envelope.intent === 'regenerate';
-  const decisionIntent = ['approve', 'override-approve', 'reject', 'export-draft'].includes(envelope.intent);
-  store.upsertArtifact({ ...existing, artifactType: envelope.artifactType, targetId: envelope.targetId, canonicalStatus: existing?.canonicalStatus ?? 'draft', ...(proposalIntent ? { activeProposalId: existing?.activeProposalId ?? `proposal-${result.runId}`, proposalStatus: 'pending-approval' } : decisionIntent ? {} : { proposalStatus: resolveProposalStatus(envelope.intent, getWorkspaceValidity(envelope.workspaceId)) }), updatedAt: result.acceptedAt });
+  // Derive proposal state from the actual active proposal so the artifact summary
+  // never reports a pending status that has no backing Proposal record, and always
+  // reflects the proposal's real lifecycle status (pending-review → pending-approval
+  // → approved / rejected / …) instead of a hardcoded value.
+  const proposal = store.getActiveProposal(envelope.artifactType, envelope.targetId);
+  store.upsertArtifact({
+    ...existing,
+    artifactType: envelope.artifactType,
+    targetId: envelope.targetId,
+    canonicalStatus: existing?.canonicalStatus ?? 'draft',
+    ...(proposal === undefined ? {} : { activeProposalId: proposal.proposalId, proposalStatus: proposal.status }),
+    updatedAt: result.acceptedAt,
+  });
 }
 
 export interface InlineEditOutcome {
@@ -50,9 +53,12 @@ export async function applyPersistedProposalDecision(input: { readonly store: Ru
   const proposal = input.options.loadActiveProposal !== undefined ? await input.options.loadActiveProposal(input.envelope.workspaceId, input.envelope.bookId, input.envelope.artifactType, input.envelope.targetId) : persistenceEnabled ? await findActiveProposalForTarget(input.envelope.workspaceId, input.envelope.bookId, input.envelope.artifactType, input.envelope.targetId) : input.store.getActiveProposal(input.envelope.artifactType, input.envelope.targetId);
   const snapshot = input.store.getLastKnownSnapshot(input.envelope.workspaceId);
   if (proposal === undefined || snapshot === undefined) { input.eventBus.publish({ type: 'run.step.failed', runId: input.runId, emittedAt: new Date().toISOString(), data: { reason: proposal === undefined ? 'active proposal not found' : 'canonical snapshot not found' } }); return; }
-  const reviewerResult = await loadReviewerResult(proposal, input.options, persistenceEnabled);
+  const reviewerResult = await loadReviewerResult(proposal, input.options, persistenceEnabled, input.store);
   const decision = applyProposalCommand({ envelope: input.envelope, proposal, currentCanonicalVersion: snapshot.snapshotId, workspaceValidity: input.getWorkspaceValidity(input.envelope.workspaceId), ...reviewerResult, requireReviewerResult: persistenceEnabled || input.options.loadReviewerResult !== undefined });
   if (!decision.accepted) { input.eventBus.publish({ type: 'run.step.failed', runId: input.runId, emittedAt: new Date().toISOString(), data: { reason: decision.reason } }); return; }
+  // Keep the in-memory proposal in sync with the decision so the approval queue
+  // (which derives artifact state from the store) reflects the real lifecycle status.
+  input.store.saveProposal(decision.proposal);
   if (input.options.persistProposalDecision !== undefined) await input.options.persistProposalDecision(input.envelope.workspaceId, input.envelope.bookId, decision.proposal);
   else if (persistenceEnabled) await persistProposal(input.envelope.workspaceId, input.envelope.bookId, decision.proposal);
   else input.store.saveProposal(decision.proposal);
@@ -100,9 +106,9 @@ export async function applyPersistedProposalDecision(input: { readonly store: Ru
   input.eventBus.publish({ type: eventType, runId: input.runId, emittedAt: new Date().toISOString(), data: { proposalId: decision.proposal.proposalId, status: decision.proposal.status } });
 }
 
-async function loadReviewerResult(proposal: Proposal, options: CreateApiServerOptions, persistenceEnabled: boolean): Promise<{ readonly reviewerResult?: ReviewerResult }> {
+async function loadReviewerResult(proposal: Proposal, options: CreateApiServerOptions, persistenceEnabled: boolean, store: RuntimeStore): Promise<{ readonly reviewerResult?: ReviewerResult }> {
   if (proposal.latestReviewResultId === undefined) return {};
-  const result = options.loadReviewerResult !== undefined ? await options.loadReviewerResult(proposal.latestReviewResultId) : persistenceEnabled ? await findPersistedReviewerResult(proposal.latestReviewResultId) : undefined;
+  const result = options.loadReviewerResult !== undefined ? await options.loadReviewerResult(proposal.latestReviewResultId) : persistenceEnabled ? await findPersistedReviewerResult(proposal.latestReviewResultId) : store.getReviewerResult(proposal.latestReviewResultId);
   return result === undefined ? {} : { reviewerResult: result };
 }
 

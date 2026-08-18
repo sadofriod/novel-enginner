@@ -136,11 +136,14 @@ export async function finalizeAcceptedCommand(validation: ReturnType<typeof vali
     if (session !== undefined && context.options.persistBootstrapState !== undefined) await context.options.persistBootstrapState(session, revision);
   }
   for (const event of bootstrapEvents) context.eventBus.publish(event);
-  const { syncArtifactSummary } = await import('../proposal/proposal');
-  syncArtifactSummary(context.store, context.eventBus, validation.envelope, result, context.getWorkspaceValidity);
   const { applyPersistedProposalDecision } = await import('../proposal/proposal');
   await applyPersistedProposalDecision({ store: context.store, eventBus: context.eventBus, envelope: validation.envelope, runId: result.runId, getWorkspaceValidity: context.getWorkspaceValidity, options: context.options });
   await finalizeAuthorProposedArtifact(validation, result, context);
+  // Sync the artifact summary only after the proposal has been created (propose /
+  // regenerate author path) or decided (approve / reject / …), so it derives from
+  // the real proposal instead of a hardcoded status.
+  const { syncArtifactSummary } = await import('../proposal/proposal');
+  syncArtifactSummary(context.store, context.eventBus, validation.envelope, result);
 }
 
 async function persistControlledRunStatus(envelope: CommandEnvelope, store: RuntimeStore): Promise<void> {

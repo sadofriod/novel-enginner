@@ -1,13 +1,15 @@
 /* eslint-disable complexity */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSelector } from 'react-redux';
 
-import { Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Stack, Tab, Tabs, Typography } from '@mui/material';
+import { Alert, Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Stack, Tab, Tabs, Typography } from '@mui/material';
 
 import type { ArtifactSummary } from '@novel-enginner/services/runtime/store';
 import type { CommandResult } from '@novel-enginner/services/runtime/command-handler';
 import type { ProposalArtifactType } from '@novel-enginner/services/domain/values';
 
-import { ApprovalQueue, artifactKey } from '../../components/ApprovalQueue';
+import type { RootState } from '../../store';
+import { ApprovalQueue, artifactKey, isActionableProposal } from '../../components/ApprovalQueue';
 import { RunTracePanel } from '../../components/RunTracePanel';
 import { InteractiveDerivedGraph } from './InteractiveDerivedGraph';
 import { CapabilityRegistryView } from './capability-registry-view';
@@ -48,7 +50,17 @@ export function WorkbenchDrawer({
   const { data: graph } = useGetWorkspaceGraphQuery();
   const { data: config } = useGetBootstrapConfigQuery();
   const [submitCommand] = useSubmitCommandMutation();
-  const runCommand = (input: CommandInput): Promise<CommandResult> => submitCommand(input).unwrap();
+  const runCommand = async (input: CommandInput): Promise<CommandResult> => {
+    try {
+      return await submitCommand(input).unwrap();
+    } catch (error) {
+      // A rejected command (e.g. workspace-invalid, invalid intent) surfaces as a
+      // CommandResult on the error payload; fall back to a readable message so
+      // callers can render feedback instead of swallowing an unhandled rejection.
+      const data = (error as { data?: CommandResult })?.data;
+      return data ?? { status: 'rejected', code: 'command-failed', message: error instanceof Error ? error.message : String(error) };
+    }
+  };
 
   return (
     <Paper
@@ -81,22 +93,66 @@ function ApprovalTab({
   readonly runCommand: (input: CommandInput) => Promise<CommandResult>;
 }) {
   const [selected, setSelected] = useState<ArtifactSummary>();
+  const [running, setRunning] = useState(false);
+  const [feedback, setFeedback] = useState<{ readonly kind: 'success' | 'error'; readonly message: string }>();
+  const [lastRunId, setLastRunId] = useState<string>();
+  const latestFailure = useSelector((state: RootState) => state.decisionFeedback.latest);
 
-  const handleAction = (action: ApprovalAction): void => {
-    if (selected === undefined || config === undefined) {
+  const actionableKeys = new Set(
+    artifacts.filter(isActionableProposal).map((artifact) => artifactKey(artifact.artifactType, artifact.targetId)),
+  );
+  // Once the selected item leaves the actionable queue (approved / rejected / removed),
+  // clear the detail panel and any stale feedback so it does not linger after the fact.
+  useEffect(() => {
+    if (selected !== undefined && !actionableKeys.has(artifactKey(selected.artifactType, selected.targetId))) {
+      setSelected(undefined);
+      setFeedback(undefined);
+      setLastRunId(undefined);
+    }
+  }, [actionableKeys, selected]);
+
+  const handleAction = async (action: ApprovalAction): Promise<void> => {
+    if (running) {
       return;
     }
-    void runCommand({
-      workspaceId: config.workspaceId,
-      bookId: config.bookId,
-      artifactType: selected.artifactType,
-      targetId: selected.targetId,
-      intent: action,
-      requestedBy: 'author-local',
-      approvalMode: 'manual',
-      idempotencyKey: `web-${action}-${selected.targetId}-${Date.now().toString(36)}`,
-    });
+    if (selected === undefined || config === undefined) {
+      setFeedback({ kind: 'error', message: '未选择待审批项，或工作区配置缺失。' });
+      return;
+    }
+    setRunning(true);
+    setFeedback(undefined);
+    setLastRunId(undefined);
+    try {
+      const result = await runCommand({
+        workspaceId: config.workspaceId,
+        bookId: config.bookId,
+        artifactType: selected.artifactType,
+        targetId: selected.targetId,
+        intent: action,
+        requestedBy: 'author-local',
+        approvalMode: 'manual',
+        idempotencyKey: `web-${action}-${selected.targetId}-${Date.now().toString(36)}`,
+      });
+      if (result.status === 'accepted') {
+        setLastRunId(result.runId);
+        // The command is accepted asynchronously; the real decision outcome (commit
+        // vs review-rejected / workspace-invalid) arrives as a run.step.failed event
+        // or a queue refresh, surfaced below instead of a silent no-op.
+        setFeedback({ kind: 'success', message: `${action} 已提交（run ${result.runId}），等待执行结果…` });
+      } else {
+        setFeedback({ kind: 'error', message: result.message ?? `命令被拒绝（${result.code}）。` });
+      }
+    } catch (cause) {
+      setFeedback({ kind: 'error', message: cause instanceof Error ? cause.message : String(cause) });
+    } finally {
+      setRunning(false);
+    }
   };
+
+  const decisionFailure = lastRunId !== undefined && latestFailure?.runId === lastRunId ? latestFailure : undefined;
+  const shownFeedback = decisionFailure === undefined
+    ? feedback
+    : { kind: 'error' as const, message: `执行失败：${decisionFailure.reason}` };
 
   return (
     <Box sx={{ display: 'grid', gap: 1.5 }}>
@@ -110,13 +166,30 @@ function ApprovalTab({
           <Typography variant="body2" sx={{ fontWeight: 600 }}>
             {selected.artifactType} :: {selected.targetId}
           </Typography>
-          <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
-            {(['approve', 'reject', 'override-approve', 'export-draft', 'delete'] as const).map((action) => (
-              <Button key={action} size="small" variant="outlined" onClick={() => handleAction(action)}>
-                {action}
-              </Button>
-            ))}
-          </Stack>
+          {isActionableProposal(selected) ? (
+            <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+              {(['approve', 'reject', 'override-approve', 'export-draft'] as const).map((action) => (
+                <Button
+                  key={action}
+                  size="small"
+                  variant="outlined"
+                  disabled={running}
+                  onClick={() => void handleAction(action)}
+                >
+                  {action}
+                </Button>
+              ))}
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              该工件当前没有待处理的 proposal。
+            </Typography>
+          )}
+          {shownFeedback === undefined ? null : (
+            <Alert severity={shownFeedback.kind} sx={{ py: 0, '& .MuiAlert-message': { fontSize: 12 } }}>
+              {shownFeedback.message}
+            </Alert>
+          )}
         </Paper>
       )}
     </Box>

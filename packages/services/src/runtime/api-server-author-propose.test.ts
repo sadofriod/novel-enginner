@@ -54,8 +54,15 @@ describe('author-proposed artifact content', () => {
     expect(dispatched).toEqual([]);
 
     const proposal = apiStore.getActiveProposal('character-update', 'char-mira');
-    expect(proposal?.status).toBe('pending-review');
+    // Author-local proposals advance to pending-approval with an auto-generated
+    // rule-gate ReviewerResult linked, so an approval is never deadlocked on a
+    // missing review.
+    expect(proposal?.status).toBe('pending-approval');
+    expect(proposal?.latestReviewResultId).toBeDefined();
     expect(proposal?.basedOnCanonicalVersion).toBe(reSyncState([]).snapshot.snapshotId);
+    const linkedReview = apiStore.getReviewerResult(proposal?.latestReviewResultId ?? '');
+    expect(linkedReview).toBeDefined();
+    expect(typeof linkedReview?.approved).toBe('boolean');
 
     const draft = apiStore.getCanonicalDraft(proposal?.proposalId ?? '');
     expect(draft?.relativePath).toBe('state/characters/char-mira.md');

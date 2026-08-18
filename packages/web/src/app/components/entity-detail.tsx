@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Box, Paper, Typography } from '@mui/material';
 
 import { BodySections, ChapterOutlineDetail } from './chapter-outline-detail';
+import { MarkdownView } from './markdown-view';
 
 import type { WorkspaceEntityDetail } from '../../api-types';
 
@@ -40,9 +41,7 @@ export function ManuscriptDetail({ entity }: { readonly entity: WorkspaceEntityD
             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
               {sceneId}
             </Typography>
-            <Typography variant="body1" sx={{ lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>
-              {prose}
-            </Typography>
+            <MarkdownView content={prose} />
           </Box>
         ))
       )}

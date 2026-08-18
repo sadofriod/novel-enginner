@@ -2,6 +2,7 @@
 import { Box, Chip, Divider, Stack, Typography } from '@mui/material';
 
 import { EmotionCurve } from './emotion-curve';
+import { MarkdownView } from './markdown-view';
 
 import type { WorkspaceEntityDetail } from '../../api-types';
 import type { EmotionStage } from './emotion-curve';
@@ -159,9 +160,7 @@ export function BodySections({ entity }: { readonly entity: WorkspaceEntityDetai
           <Typography variant="subtitle2" color="text.secondary">
             {title}
           </Typography>
-          <Typography variant="body1" sx={{ lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-            {content}
-          </Typography>
+          <MarkdownView content={content} />
         </Box>
       ))}
     </Box>

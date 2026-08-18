@@ -13,6 +13,24 @@ test('author can open the unified workbench and re-sync the workspace', async ({
   await expect((await syncResponse).status()).toBe(202);
 });
 
+test('author can open a chapter body from the book TOC and switch between outline and 正文', async ({ page }) => {
+  await page.goto('/workspace');
+  await expect(page.getByRole('navigation', { name: '书目录' })).toBeVisible();
+
+  // Clicking a chapter opens the outline first (outline-first design).
+  await page.getByRole('treeitem', { name: /第 1 章/ }).first().click();
+  await expect(page.getByRole('heading', { name: '修复师的日常' }).first()).toBeVisible();
+  await expect(page.getByRole('region', { name: '章节细纲' })).toBeVisible();
+
+  // Switch to 正文: the manuscript body renders as HTML instead of raw markdown.
+  await page.getByRole('button', { name: '正文' }).click();
+  await expect(page.getByText('共鸣都会的交汇带', { exact: false }).first()).toBeVisible();
+
+  // Back to the outline.
+  await page.getByRole('button', { name: '大纲' }).click();
+  await expect(page.getByRole('region', { name: '章节细纲' })).toBeVisible();
+});
+
 test('author can create, recover, and advance a new-book bootstrap session', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: '新建作品' }).click();
@@ -21,7 +39,7 @@ test('author can create, recover, and advance a new-book bootstrap session', asy
   await expect(page.getByRole('heading', { name: 'Bootstrap 工作台' })).toBeVisible();
   await expect(page.locator('body')).toContainText('market-research');
 
-  await page.getByLabel('阶段输入').fill('目标读者偏好快节奏悬疑与有限世界规则。');
+  await page.getByRole('textbox', { name: '阶段输入' }).fill('目标读者偏好快节奏悬疑与有限世界规则。');
   await page.getByRole('button', { name: '保存本轮' }).click();
   await expect(page.getByRole('status')).toHaveText('已保存。');
   await page.getByRole('button', { name: '继续下一阶段' }).click();
@@ -35,7 +53,7 @@ test('author can create, recover, and advance a new-book bootstrap session', asy
 test('author can progress an import session to a mapping review without writing canonical files', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: '导入已有作品' }).click();
-  await page.getByLabel('已有作品目录').fill('/tmp/example-novel');
+  await page.getByRole('textbox', { name: '已有作品目录' }).fill('/tmp/example-novel');
   await page.getByRole('button', { name: '开始导入' }).click();
   await expect(page.locator('body')).toContainText('import-scan');
 

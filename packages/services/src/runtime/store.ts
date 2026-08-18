@@ -1,5 +1,5 @@
 import type { CommandIntent, ProposalArtifactType, SystemTaskType } from '../domain/values';
-import type { Proposal } from '../domain';
+import type { Proposal, ReviewerResult } from '../domain';
 import type { StableId } from '../domain/schema';
 import { WorkspaceSyncSession } from '../workspace/session';
 import type { RunSnapshotRef } from '../workflow/run-drift';
@@ -72,6 +72,7 @@ export class RuntimeStore {
   private readonly runsById = new Map<string, RunRecord>();
   private readonly artifactsByKey = new Map<string, ArtifactSummary>();
   private readonly proposalsByKey = new Map<string, Proposal>();
+  private readonly reviewerResultsByReviewResultId = new Map<string, ReviewerResult>();
   private readonly lastKnownSnapshotByWorkspaceId = new Map<
     string,
     import('../workspace/sync-engine').WorkspaceSnapshot
@@ -134,6 +135,14 @@ export class RuntimeStore {
 
   getActiveProposal(artifactType: ProposalArtifactType, targetId: string): Proposal | undefined {
     return this.proposalsByKey.get(artifactKey(artifactType, targetId));
+  }
+
+  saveReviewerResult(reviewResultId: string, result: ReviewerResult): void {
+    this.reviewerResultsByReviewResultId.set(reviewResultId, result);
+  }
+
+  getReviewerResult(reviewResultId: string): ReviewerResult | undefined {
+    return this.reviewerResultsByReviewResultId.get(reviewResultId);
   }
 
   saveCanonicalDraft(draft: CanonicalDraft): void {

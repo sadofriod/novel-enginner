@@ -12,6 +12,27 @@ export function artifactKey(artifactType: string, targetId: string): string {
   return `${artifactType}::${targetId}`;
 }
 
+/** Proposal statuses that warrant an approval-queue entry (i.e. await a decision). */
+export const ACTIONABLE_PROPOSAL_STATUSES: ReadonlySet<string> = new Set([
+  'pending-review',
+  'pending-approval',
+  'commit-blocked',
+  'waiting-sync',
+]);
+
+/**
+ * True when the artifact is backed by a real, still-actionable proposal. The queue
+ * only lists these, so it never shows a stale/hardcoded pending status that has no
+ * backing Proposal record.
+ */
+export function isActionableProposal(artifact: ArtifactSummary): boolean {
+  return (
+    artifact.activeProposalId !== undefined
+    && artifact.proposalStatus !== undefined
+    && ACTIONABLE_PROPOSAL_STATUSES.has(artifact.proposalStatus)
+  );
+}
+
 const STATUS_COLORS: Record<string, { background: string; color: string }> = {
   'commit-blocked': { background: '#ffebee', color: '#c62828' },
   'waiting-sync':   { background: '#fff8e1', color: '#f57f17' },
@@ -37,7 +58,7 @@ function StatusChip({ status }: { readonly status: string }) {
  * ordered per §6.7: blocking severity, then artifact-type weight, then recency.
  */
 export function ApprovalQueue({ artifacts, selectedKey, onSelect }: ApprovalQueueProps) {
-  const ordered = sortApprovalQueue(artifacts);
+  const ordered = sortApprovalQueue(artifacts.filter(isActionableProposal));
 
   if (ordered.length === 0) {
     return (

@@ -6,6 +6,7 @@ import { skipToken } from '@reduxjs/toolkit/query';
 import { Box, Button, CircularProgress, List, ListItemButton, ListItemText, Paper, Stack, TextField, Typography } from '@mui/material';
 
 import { EntityDetailView } from '../components/entity-detail';
+import { ChapterContentView } from '../components/chapter-view';
 import { WorkspaceTreeView } from '../components/workspace-tree';
 import { WorkbenchDrawer } from '../components/workbench-drawer';
 import { resolveSearchTarget } from '../components/search-locate';
@@ -33,6 +34,10 @@ export function WorkspaceWorkbench() {
   const trimmedQuery = searchQuery.trim();
   const { data: search, isFetching: searching } = useSearchWorkspaceQuery(trimmedQuery, { skip: trimmedQuery.length === 0 });
   const { data: entity, isFetching: entityLoading } = useGetWorkspaceEntityQuery(selection === undefined ? skipToken : { kind: selection.kind, id: selection.id });
+  const selectedChapter = selection === undefined || tree === undefined
+    ? undefined
+    : tree.volumes.flatMap((volume) => volume.chapters).find((chapter) => chapter.id === selection.id);
+  const manuscriptId = selectedChapter?.manuscriptId;
 
   useWorkspaceEventStream();
 
@@ -100,7 +105,15 @@ export function WorkspaceWorkbench() {
             </Paper>
           ) : (
             <Paper variant="outlined" sx={{ p: 2.5 }}>
-              <EntityDetailView entity={entity} />
+              {selection !== undefined && selection.kind === 'chapter-outline' ? (
+                <ChapterContentView
+                  key={selection.id}
+                  outlineEntity={entity}
+                  {...(manuscriptId === undefined ? {} : { manuscriptId })}
+                />
+              ) : (
+                <EntityDetailView entity={entity} />
+              )}
             </Paper>
           )
         ) : (

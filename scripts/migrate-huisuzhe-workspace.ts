@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
 
 import { stringify } from 'yaml';
@@ -7,6 +7,13 @@ import { reSyncState, type WorkspaceFileInput } from '../packages/services/src/w
 
 const DEFAULT_SOURCE_ROOT = '/Users/dushihua/dev/story-wirter/output/回溯者';
 const DEFAULT_TEMPLATE_ROOT = '/Users/dushihua/dev/apps/novel-enginner';
+
+/** Resolves a path from env (preferred), then argv, then the hardcoded default. */
+function resolvePath(envKey: string, argvIndex: number, fallback: string): string {
+  const fromEnv = process.env[envKey]?.trim();
+  const fromArgv = process.argv[argvIndex];
+  return fromEnv !== undefined && fromEnv !== '' ? fromEnv : fromArgv ?? fallback;
+}
 
 type CanonicalFile = {
   readonly path: string;
@@ -62,7 +69,7 @@ async function sourceMarkdown(sourceRoot: string, relativePath: string): Promise
 }
 
 // eslint-disable-next-line complexity, max-lines-per-function
-async function createCanonicalFiles(sourceRoot: string): Promise<readonly CanonicalFile[]> {
+async function createCanonicalFiles(sourceRoot: string, templateRoot: string): Promise<readonly CanonicalFile[]> {
   const files: CanonicalFile[] = [];
   const volumes = await Promise.all([1, 2, 3].map(async (number) => sourceMarkdown(sourceRoot, `大纲/volume${number}_stories.md`)));
   const settings = await listMarkdownFiles(join(sourceRoot, '设定'));
@@ -89,19 +96,19 @@ async function createCanonicalFiles(sourceRoot: string): Promise<readonly Canoni
   files.push({
     path: 'state/book/project-brief.md',
     content: canonicalMarkdown({
-      id: 'project-brief-huisuzhe', bookId: 'book-huisuzhe', title: '回溯者', genres: ['近未来科幻', '悬疑'], targetAudience: '偏好高概念科幻与悬疑的成年读者', marketScope: '中文长篇网络小说', readerPromise: '在记忆可被交易和篡改的城市中追索真相。', corePremise: '灰色记忆修复师凯在一次高价委托中发现被系统删除的历史。', openingHook: '林薇的完美记忆中出现了一张不该存在的脸。', contentBoundaries: [], format: '多卷长篇小说', sourceResearchEvidenceIds: [], assumptionIds: [], status: 'approved',
+        id: 'project-brief-huisuzhe', bookId: 'book-huisuzhe', title: '回溯者', genres: ['近未来科幻', '悬疑'], targetAudience: '偏好高概念科幻与悬疑的成年读者', marketScope: '中文长篇网络小说', readerPromise: '在记忆可被交易和篡改的城市中追索真相。', corePremise: '灰色记忆修复师凯在一次高价委托中发现被系统删除的历史。', openingHook: '林薇的完美记忆中出现了一张不该存在的脸。', contentBoundaries: [], format: '多卷长篇小说', sourceResearchEvidenceIds: [], assumptionIds: [], status: 'draft',
     }, { 'Imported Source': volumes.join('\n\n') }),
   });
   files.push({
     path: 'state/world/world-foundation.md',
     content: canonicalMarkdown({
-      id: 'world-foundation-huisuzhe', bookId: 'book-huisuzhe', eraAndPrimarySetting: '中央 AI 上线后第 36 年的共鸣都会', realityMode: '近未来科幻', tone: '冷峻、悬疑、压迫', capabilitySystem: '回溯共鸣与生物电极', immutableRules: ['高强度回溯会造成明确的生理和精神代价。', '中央 AI 会过滤超出稳定阈值的异常记忆。'], socialOrder: '上传者、整合者与幽灵代码构成分层社会。', narrativeProhibitions: [], terminologyRefs: [], projectBriefRef: 'project-brief-huisuzhe', status: 'approved',
+        id: 'world-foundation-huisuzhe', bookId: 'book-huisuzhe', eraAndPrimarySetting: '中央 AI 上线后第 36 年的共鸣都会', realityMode: '近未来科幻', tone: '冷峻、悬疑、压迫', capabilitySystem: '回溯共鸣与生物电极', immutableRules: ['高强度回溯会造成明确的生理和精神代价。', '中央 AI 会过滤超出稳定阈值的异常记忆。'], socialOrder: '上传者、整合者与幽灵代码构成分层社会。', narrativeProhibitions: [], terminologyRefs: [], projectBriefRef: 'project-brief-huisuzhe', status: 'draft',
     }, { 'Imported Settings': (await Promise.all(settings.map(async (path) => `## ${basename(path, '.md')}\n\n${await readFile(path, 'utf8')}`))).join('\n\n') }),
   });
   files.push({
     path: 'state/book/story-blueprint.md',
     content: canonicalMarkdown({
-      id: 'story-blueprint-huisuzhe', bookId: 'book-huisuzhe', projectBriefRef: 'project-brief-huisuzhe', worldFoundationRef: 'world-foundation-huisuzhe', protagonistArc: '凯从自我保护的灰色修复师成长为承载真相的历史记录者。', centralConflict: '被系统篡改的历史与人的真实记忆之间的冲突。', opposition: '中央 AI、星轨财团与其执行体系。', resolutionDirection: '凯进入反抗网络，追索并挑战中央 AI 的控制。', volumePlan: ['第一卷：残影与共鸣', '第二卷：记忆贩子的陷阱', '第三卷：待源大纲展开'], crossVolumeCommitments: ['普罗米修斯的存在与中央 AI 后门会持续推进。'], estimatedVolumeCount: 3, status: 'approved',
+        id: 'story-blueprint-huisuzhe', bookId: 'book-huisuzhe', projectBriefRef: 'project-brief-huisuzhe', worldFoundationRef: 'world-foundation-huisuzhe', protagonistArc: '凯从自我保护的灰色修复师成长为承载真相的历史记录者。', centralConflict: '被系统篡改的历史与人的真实记忆之间的冲突。', opposition: '中央 AI、星轨财团与其执行体系。', resolutionDirection: '凯进入反抗网络，追索并挑战中央 AI 的控制。', volumePlan: ['第一卷：残影与共鸣', '第二卷：记忆贩子的陷阱', '第三卷：待源大纲展开'], crossVolumeCommitments: ['普罗米修斯的存在与中央 AI 后门会持续推进。'], estimatedVolumeCount: 3, status: 'draft',
     }, { 'Imported Volume Plans': volumes.join('\n\n') }),
   });
 
@@ -157,7 +164,7 @@ async function createCanonicalFiles(sourceRoot: string): Promise<readonly Canoni
     });
     files.push({
       path: `manuscript/volume-001/${id}.md`,
-      content: canonicalMarkdown({ id, chapterNumber: number, volumeId: 'volume-001', basedOnOutlineId: outlineId, status: 'approved', displayTitle: title, basedOnCanonicalVersion: 'snap-0001', sceneAnchorIds: [`scene-${id}-source`] }, { [`Scene scene-${id}-source`]: content }),
+      content: canonicalMarkdown({ id, chapterNumber: number, volumeId: 'volume-001', basedOnOutlineId: outlineId, status: 'draft', displayTitle: title, basedOnCanonicalVersion: 'snap-0001', sceneAnchorIds: [`scene-${id}-source`] }, { [`Scene scene-${id}-source`]: content }),
     });
   }
 
@@ -166,9 +173,9 @@ async function createCanonicalFiles(sourceRoot: string): Promise<readonly Canoni
     content: canonicalMarkdown({ id: 'location-resonance-metropolis', name: '共鸣都会', type: '城市', hazards: ['中央 AI 的持续监管', '异常记忆的清洗'], accessRules: ['不同阶层具有不同数字身份与区域权限。'], status: 'active' }, { 'Imported Source': '《回溯者》的主要行动空间。详细地理设定保存在世界基础与导入设定事实中。' }),
   });
   files.push({
-    path: 'state/reviewer/rules.json', content: await readFile(join(DEFAULT_TEMPLATE_ROOT, 'state/reviewer/rules.json'), 'utf8') });
+    path: 'state/reviewer/rules.json', content: await readFile(join(templateRoot, 'state/reviewer/rules.json'), 'utf8') });
   files.push({
-    path: 'state/capabilities/registry.md', content: await readFile(join(DEFAULT_TEMPLATE_ROOT, 'state/capabilities/registry.md'), 'utf8') });
+    path: 'state/capabilities/registry.md', content: await readFile(join(templateRoot, 'state/capabilities/registry.md'), 'utf8') });
   return files;
 }
 
@@ -192,23 +199,47 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-async function main(): Promise<void> {
-  const sourceRoot = process.argv[2] ?? DEFAULT_SOURCE_ROOT;
-  const targetRoot = process.argv[3] ?? sourceRoot;
-  const protectedPaths = ['state', 'manuscript', 'mcp.json'];
-  const existing = await Promise.all(protectedPaths.map(async (path) => await pathExists(join(targetRoot, path)) ? path : undefined));
-  const conflicts = existing.filter((path): path is string => path !== undefined);
-  if (conflicts.length > 0) {
-    throw new Error(`Refusing to overwrite existing canonical workspace paths: ${conflicts.join(', ')}`);
+function readForceRebuild(): boolean {
+  return process.env['NOVEL_REBUILD'] === '1' || process.argv.includes('--force');
+}
+
+async function findConflicts(targetRoot: string, protectedPaths: readonly string[]): Promise<readonly string[]> {
+  const existing = await Promise.all(
+    protectedPaths.map(async (path) => (await pathExists(join(targetRoot, path)) ? path : undefined)),
+  );
+  return existing.filter((path): path is string => path !== undefined);
+}
+
+async function removeProtectedPaths(targetRoot: string, protectedPaths: readonly string[]): Promise<void> {
+  for (const path of protectedPaths) {
+    const existingPath = join(targetRoot, path);
+    if (await pathExists(existingPath)) {
+      await rm(existingPath, { recursive: true, force: true });
+    }
   }
-  const files = await createCanonicalFiles(sourceRoot);
+}
+
+async function main(): Promise<void> {
+  const sourceRoot = resolvePath('NOVEL_SOURCE_ROOT', 2, DEFAULT_SOURCE_ROOT);
+  const targetRoot = resolvePath('NOVEL_WORKSPACE_ROOT', 3, sourceRoot);
+  const templateRoot = resolvePath('NOVEL_TEMPLATE_ROOT', 4, DEFAULT_TEMPLATE_ROOT);
+  const forceRebuild = readForceRebuild();
+  const protectedPaths = ['state', 'manuscript', 'mcp.json'];
+  const conflicts = await findConflicts(targetRoot, protectedPaths);
+  if (conflicts.length > 0 && !forceRebuild) {
+    throw new Error(`Refusing to overwrite existing canonical workspace paths: ${conflicts.join(', ')} (set NOVEL_REBUILD=1 to force a rebuild).`);
+  }
+  if (forceRebuild) {
+    await removeProtectedPaths(targetRoot, protectedPaths);
+  }
+  const files = await createCanonicalFiles(sourceRoot, templateRoot);
   const validation = reSyncState(files as readonly WorkspaceFileInput[]);
   if (validation.errors.length > 0) {
     throw new Error(`Migration generated invalid canonical files:\n${validation.errors.map((error) => `${error.path}: ${error.reason}`).join('\n')}`);
   }
   await writeCanonicalWorkspace(targetRoot, files);
-  await cp(join(DEFAULT_TEMPLATE_ROOT, 'mcp.json'), join(targetRoot, 'mcp.json'));
-  console.log(`Migrated ${files.length} canonical files to ${targetRoot}.`);
+  await cp(join(templateRoot, 'mcp.json'), join(targetRoot, 'mcp.json'));
+  console.log(`Migrated ${files.length} canonical files to ${targetRoot} (source=${sourceRoot}, template=${templateRoot}).`);
 }
 
 void main();

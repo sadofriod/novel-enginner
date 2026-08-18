@@ -9,7 +9,8 @@ import { RuntimeStore } from '../../store';
 import type { CreateApiServerOptions } from '../types';
 import { confirmImport } from '../../../bootstrap/import/confirm-import';
 import type { ImportMapping } from '../../../bootstrap/import/import-mapper';
-import { transitionBootstrapSession } from '../../../bootstrap/state-machine/state-machine';
+import { readCanonicalWorkspaceFiles } from '../../../workspace/file-watcher';
+import { reSyncState } from '../../../workspace/sync-engine';
 
 export function shouldDispatchToInngest(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -111,6 +112,70 @@ async function finalizeAuthorProposedArtifact(
   }
 }
 
+/**
+ * Runs the synchronous LLM optimize pipeline for an `optimize` command: the backend
+ * calls the model (via `provideModel` or the env-configured provider) to produce an
+ * optimized artifact, then creates a `pending-approval` proposal for the author.
+ * When no provider is available the pipeline fails loudly (recoverable event) rather
+ * than silently degrading, per the agreed no-provider policy.
+ */
+async function finalizeOptimizeCommand(
+  validation: ReturnType<typeof validateCommandEnvelope>,
+  result: CommandResult,
+  context: FinalizeAcceptedCommandContext,
+): Promise<void> {
+  if (!('ok' in validation) || result.status !== 'accepted' || validation.envelope.intent !== 'optimize') {
+    return;
+  }
+  const artifactType = validation.envelope.artifactType;
+  const targetId = validation.envelope.targetId;
+  if (artifactType === undefined || targetId === undefined) {
+    return;
+  }
+  const { tryApplyOptimizeArtifact } = await import('../../optimize-proposal');
+  const { createDefaultModelProvider } = await import('../../../agent/provider');
+  const optimized = await tryApplyOptimizeArtifact({
+    store: context.store,
+    eventBus: context.eventBus,
+    runId: result.runId,
+    workspaceId: validation.envelope.workspaceId,
+    bookId: validation.envelope.bookId,
+    artifactType,
+    targetId,
+    provider: context.options.provideModel?.() ?? createDefaultModelProvider(process.env, context.options.workspaceRoot),
+    options: context.options,
+  });
+  if (optimized === undefined) {
+    return;
+  }
+  for (const event of optimized.events) context.eventBus.publish(event);
+}
+
+/**
+ * Runs the 存量重审 (retrospective review): builds `pending-approval` proposals
+ * (origin `imported`) for the existing canonical workspace content so the author can
+ * re-approve previously imported content through the regular approval queue. Nothing
+ * is written until the author approves.
+ */
+export async function applyRetrospectiveReview(store: RuntimeStore, workspaceId: string, runId: string, options: CreateApiServerOptions): Promise<readonly import('../../event-bus').RunEvent[]> {
+  const snapshot = store.getLastKnownSnapshot(workspaceId) ?? reSyncState([]).snapshot;
+  const files = await readCanonicalWorkspaceFiles(options.workspaceRoot ?? process.cwd());
+  const { buildRetrospectiveProposals } = await import('../../../workflow/retrospective-proposals');
+  const items = await buildRetrospectiveProposals({ files, runId, snapshotId: snapshot.snapshotId });
+  const emittedAt = new Date().toISOString();
+  for (const item of items) {
+    store.saveProposal(item.proposal);
+    store.saveCanonicalDraft(item.draft);
+  }
+  const events: import('../../event-bus').RunEvent[] = [
+    { type: 'retrospective-review.completed', runId, emittedAt, data: { workspaceId, proposalCount: items.length } },
+  ];
+  for (const item of items) {
+    events.push({ type: 'proposal.created', runId, emittedAt, data: { proposalId: item.proposal.proposalId, artifactType: item.proposal.artifactType, targetId: item.proposal.targetId } });
+  }
+  return events;
+}
+
 export async function finalizeAcceptedCommand(validation: ReturnType<typeof validateCommandEnvelope>, result: CommandResult, context: FinalizeAcceptedCommandContext): Promise<void> {
   if (!('ok' in validation) || result.status !== 'accepted') return;
   const command = context.store.getCommand(result.commandId);
@@ -118,15 +183,16 @@ export async function finalizeAcceptedCommand(validation: ReturnType<typeof vali
   if (command !== undefined && run !== undefined && context.persistAcceptedCommand !== undefined) await context.persistAcceptedCommand(validation.envelope, command, run);
   if (context.commandWasKnown) return;
   await persistControlledRunStatus(validation.envelope, context.store);
-  const bootstrap = applyBootstrapCommand({
+  const bootstrap = await applyBootstrapCommand({
     store: context.store,
     envelope: validation.envelope,
     runId: result.runId,
     payload: context.payload,
     ...(context.options.marketResearchPort === undefined ? {} : { marketResearchPort: context.options.marketResearchPort }),
+    ...(context.options.provideModel === undefined ? {} : { provideModel: context.options.provideModel }),
   });
   const bootstrapEvents = validation.envelope.intent === 'confirm-import'
-    ? [...bootstrap.events, ...await applyConfirmedImport(context.store, result.runId, context.payload)]
+    ? [...bootstrap.events, ...await applyConfirmedImport(context.store, result.runId, context.payload, context.options)]
     : bootstrap.events;
   const sessionId = bootstrapEvents.find((event) => typeof event.data?.['sessionId'] === 'string')?.data?.['sessionId'];
   if (typeof sessionId === 'string') {
@@ -138,7 +204,15 @@ export async function finalizeAcceptedCommand(validation: ReturnType<typeof vali
   for (const event of bootstrapEvents) context.eventBus.publish(event);
   const { applyPersistedProposalDecision } = await import('../proposal/proposal');
   await applyPersistedProposalDecision({ store: context.store, eventBus: context.eventBus, envelope: validation.envelope, runId: result.runId, getWorkspaceValidity: context.getWorkspaceValidity, options: context.options });
+  const { applyPersistedProposalBatchDecision } = await import('../proposal/proposal');
+  await applyPersistedProposalBatchDecision({ store: context.store, eventBus: context.eventBus, envelope: validation.envelope, runId: result.runId, getWorkspaceValidity: context.getWorkspaceValidity, options: context.options });
   await finalizeAuthorProposedArtifact(validation, result, context);
+  await finalizeOptimizeCommand(validation, result, context);
+  if (validation.envelope.intent === 'retrospective-review') {
+    for (const event of await applyRetrospectiveReview(context.store, validation.envelope.workspaceId, result.runId, context.options)) {
+      context.eventBus.publish(event);
+    }
+  }
   // Sync the artifact summary only after the proposal has been created (propose /
   // regenerate author path) or decided (approve / reject / …), so it derives from
   // the real proposal instead of a hardcoded status.
@@ -155,28 +229,28 @@ async function persistControlledRunStatus(envelope: CommandEnvelope, store: Runt
   await updatePersistedRunStatus({ runId: run.runId, status: transition[0], nextExpectedState: transition[1] });
 }
 
-export async function applyConfirmedImport(store: RuntimeStore, runId: string, payload: Record<string, unknown>): Promise<readonly import('../../event-bus').RunEvent[]> {
+export async function applyConfirmedImport(store: RuntimeStore, runId: string, payload: Record<string, unknown>, options: CreateApiServerOptions): Promise<readonly import('../../event-bus').RunEvent[]> {
   const sessionId = typeof payload['sessionId'] === 'string' ? payload['sessionId'] : undefined;
   const sourceRoot = typeof payload['sourceRoot'] === 'string' ? payload['sourceRoot'] : undefined;
   const targetRoot = typeof payload['targetRoot'] === 'string' ? payload['targetRoot'] : undefined;
   if (sessionId === undefined || sourceRoot === undefined || targetRoot === undefined || !('mapping' in payload)) throw new Error('confirm-import requires sessionId, sourceRoot, targetRoot, and mapping.');
   const session = store.getBootstrapSession(sessionId);
   if (session === undefined || session.path !== 'import') throw new Error(`Import Bootstrap session "${sessionId}" was not found.`);
-  const result = await confirmImport({ sourceRoot, targetRoot, mapping: payload['mapping'] as ImportMapping });
-  const emittedAt = new Date().toISOString(); const revisionId = `bootstrap-revision-${runId}`;
-  store.upsertBootstrapRevision({ id: revisionId, sessionId, stage: 'import-health-report', createdAt: emittedAt, summary: 'Import confirmation completed and health report generated.', draft: result.healthReport as unknown as Record<string, unknown> });
-  store.setLastKnownSnapshot(session.workspaceId, result.reconcile.snapshot);
-  store.setWorkspaceValidity(session.workspaceId, result.reconcile.validity);
-  const readySession = result.readyToWrite
-    ? transitionBootstrapSession(session, 'ready-to-write')
-    : { ...session, status: 'import-review' as const, currentStage: 'import-health-report' as const, currentRevisionId: revisionId, updatedAt: emittedAt };
-  store.upsertBootstrapSession({ ...readySession, currentStage: 'import-health-report', currentRevisionId: revisionId, updatedAt: emittedAt });
+  const snapshot = store.getLastKnownSnapshot(session.workspaceId) ?? reSyncState([]).snapshot;
+  const existingFiles = options.workspaceRoot === undefined ? [] : await readCanonicalWorkspaceFiles(options.workspaceRoot);
+  const result = await confirmImport({ sourceRoot, targetRoot, mapping: payload['mapping'] as ImportMapping, runId, snapshotId: snapshot.snapshotId, existingFiles });
+  const emittedAt = new Date().toISOString();
+  const revisionId = `bootstrap-revision-${runId}`;
+  for (const item of result.proposals) {
+    store.saveProposal(item.proposal);
+    store.saveCanonicalDraft(item.draft);
+  }
+  store.upsertBootstrapRevision({ id: revisionId, sessionId, stage: 'import-health-report', createdAt: emittedAt, summary: `Import confirmed: ${result.proposals.length} proposals created for author approval.`, draft: result.healthReport as unknown as Record<string, unknown> });
+  store.upsertBootstrapSession({ ...session, status: 'import-review' as const, currentStage: 'import-health-report' as const, currentRevisionId: revisionId, updatedAt: emittedAt });
   const events: import('../../event-bus').RunEvent[] = [
     { type: 'bootstrap.session.updated', runId, emittedAt, data: { sessionId, revisionId } },
     { type: 'bootstrap.stage.changed', runId, emittedAt, data: { sessionId, stage: 'import-health-report' } },
+    { type: 'bootstrap.import-proposals-created', runId, emittedAt, data: { sessionId, proposalCount: result.proposals.length, isolatedPaths: result.isolatedPaths, ready: result.readyToWrite } },
   ];
-  if (result.readyToWrite) {
-    events.push({ type: 'bootstrap.ready-to-write', runId, emittedAt, data: { sessionId } });
-  }
   return events;
 }

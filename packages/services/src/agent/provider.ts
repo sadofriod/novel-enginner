@@ -11,6 +11,8 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 
+import { loadModelConfig, type ModelConfig } from './model-config';
+
 export const MODEL_TIER_VALUES = ['flagship', 'balanced', 'economy'] as const;
 
 export type ModelTier = (typeof MODEL_TIER_VALUES)[number];
@@ -18,6 +20,10 @@ export type ModelTier = (typeof MODEL_TIER_VALUES)[number];
 export interface ModelProviderConfig {
   readonly apiKey?: string | undefined;
   readonly baseUrl?: string | undefined;
+  /** Per-tier model identifiers, overriding the defaults. */
+  readonly modelByTier?: Partial<Record<ModelTier, string>> | undefined;
+  /** Request timeout in ms; defaults to the AI SDK request timeout when unset. */
+  readonly timeoutMs?: number | undefined;
 }
 
 export interface ModelCompletionRequest {
@@ -63,12 +69,14 @@ export class OpenAiModelProvider implements ModelProvider {
 
   private readonly apiKey: string | undefined;
   private readonly baseUrl: string | undefined;
+  private readonly timeoutMs: number | undefined;
   private readonly modelByTier: Record<ModelTier, string>;
 
   constructor(config: ModelProviderConfig = {}) {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl;
-    this.modelByTier = { ...DEFAULT_OPENAI_MODEL_BY_TIER };
+    this.timeoutMs = config.timeoutMs;
+    this.modelByTier = { ...DEFAULT_OPENAI_MODEL_BY_TIER, ...(config.modelByTier ?? {}) };
   }
 
   resolveModelId(tier: ModelTier): string {
@@ -91,6 +99,7 @@ export class OpenAiModelProvider implements ModelProvider {
       ...(request.system === undefined ? {} : { system: request.system }),
       prompt: request.prompt,
       maxRetries: 0,
+      ...(this.timeoutMs === undefined ? {} : { timeout: this.timeoutMs }),
     });
 
     return {
@@ -105,15 +114,74 @@ export class OpenAiModelProvider implements ModelProvider {
   }
 }
 
+const MODEL_ENV_KEY_BY_TIER: Record<ModelTier, string> = {
+  flagship: 'OPENAI_MODEL_FLAGSHIP',
+  balanced: 'OPENAI_MODEL_BALANCED',
+  economy: 'OPENAI_MODEL_ECONOMY',
+};
+
+function valueFrom(configValue: string | undefined, envValue: string | undefined): string | undefined {
+  return configValue ?? envValue;
+}
+
+/** Builds an optional config fragment, `undefined` when the value is unset (spread as a no-op). */
+function fragment<T>(value: T | undefined, build: (value: T) => object): object | undefined {
+  return value === undefined ? undefined : build(value);
+}
+
+function trimToValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed === '' ? undefined : trimmed;
+}
+
+function resolveTierModel(
+  config: ModelConfig | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+  tier: ModelTier,
+): string | undefined {
+  const fromConfig = config?.models?.[tier];
+  if (fromConfig !== undefined) {
+    return fromConfig;
+  }
+  return trimToValue(env[MODEL_ENV_KEY_BY_TIER[tier]]);
+}
+
+/** Resolves per-tier model ids from config file first, then environment. */
+function resolveModelByTier(
+  config: ModelConfig | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+): Partial<Record<ModelTier, string>> {
+  const modelByTier: Partial<Record<ModelTier, string>> = {};
+  for (const tier of MODEL_TIER_VALUES) {
+    const model = resolveTierModel(config, env, tier);
+    if (model !== undefined) {
+      modelByTier[tier] = model;
+    }
+  }
+  return modelByTier;
+}
+
+/** Returns the model map only when at least one tier was configured, so the provider keeps its defaults. */
+function nonEmptyModels(modelByTier: Partial<Record<ModelTier, string>>): Partial<Record<ModelTier, string>> | undefined {
+  return Object.keys(modelByTier).length === 0 ? undefined : modelByTier;
+}
+
 /**
- * Builds the default V1 provider from environment configuration. Centralized here so
- * runtime wiring has one place to change if the default provider ever changes.
+ * Builds the default V1 provider from a config file (model.config.json) when present,
+ * falling back to environment configuration. The config file supplies the provider's
+ * `apiKey`, `baseUrl`, and per-tier `models` (模型名称 / key / baseURL), so local and
+ * remote model wiring no longer depends on hardcoded OpenAI model ids.
  */
 export function createDefaultModelProvider(
   env: Readonly<Record<string, string | undefined>> = process.env,
+  workspaceRoot?: string,
 ): ModelProvider {
+  const config = loadModelConfig(workspaceRoot);
+  const modelByTier = nonEmptyModels(resolveModelByTier(config, env));
   return new OpenAiModelProvider({
-    apiKey: env['OPENAI_API_KEY'],
-    baseUrl: env['OPENAI_BASE_URL'],
+    apiKey: valueFrom(config?.apiKey, env['OPENAI_API_KEY']),
+    baseUrl: valueFrom(config?.baseUrl, env['OPENAI_BASE_URL']),
+    ...fragment(config?.timeoutMs, (timeoutMs) => ({ timeoutMs })),
+    ...fragment(modelByTier, (models) => ({ modelByTier: models })),
   });
 }

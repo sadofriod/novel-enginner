@@ -182,6 +182,7 @@ export async function applyAuthorProposedArtifact(input: AuthorProposedArtifactI
     targetId: input.targetId,
     status: 'pending-review',
     intent: input.intent,
+    origin: 'author',
     basedOnCanonicalVersion: snapshot.snapshotId,
     parentRunId: input.runId,
   };

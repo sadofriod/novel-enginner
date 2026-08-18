@@ -1,0 +1,11 @@
+{
+  "provider": "openai",
+  "baseUrl": "http://127.0.0.1:1234/v1",
+  "apiKey": "LM-studio",
+  "timeoutMs": 600000,
+  "models": {
+    "flagship": "google/gemma-4-12b",
+    "balanced": "google/gemma-4-12b",
+    "economy": "qwen2.5-0.5b-instruct-mlx"
+  }
+}

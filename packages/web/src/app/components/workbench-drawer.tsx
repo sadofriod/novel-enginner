@@ -67,7 +67,7 @@ export function WorkbenchDrawer({
       component="aside"
       aria-label="工作台工具"
       variant="outlined"
-      sx={{ p: 1.5, display: 'grid', gap: 1.5, alignSelf: 'start', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto' }}
+      sx={{ p: 1.5, display: 'grid', gap: 1.5, alignSelf: 'start', position: 'sticky', top: 16, maxHeight: 'calc(100vh - 32px)', overflowY: 'auto' }}
     >
       <Tabs value={tab} onChange={(_event, value: WorkbenchDrawerTab) => onTabChange(value)} variant="scrollable" scrollButtons="auto">
         {TABS.map((item) => (
@@ -83,6 +83,15 @@ export function WorkbenchDrawer({
   );
 }
 
+/** Artifact types the LLM `optimize` intent supports as a single-file proposal. */
+const OPTIMIZABLE_ARTIFACT_TYPES: ReadonlySet<ProposalArtifactType> = new Set([
+  'chapter-manuscript',
+  'chapter-outline',
+  'volume-outline',
+  'world-foundation',
+  'story-blueprint',
+]);
+
 function ApprovalTab({
   artifacts,
   config,
@@ -93,14 +102,27 @@ function ApprovalTab({
   readonly runCommand: (input: CommandInput) => Promise<CommandResult>;
 }) {
   const [selected, setSelected] = useState<ArtifactSummary>();
+  const [batchKeys, setBatchKeys] = useState<ReadonlySet<string>>(new Set());
   const [running, setRunning] = useState(false);
   const [feedback, setFeedback] = useState<{ readonly kind: 'success' | 'error'; readonly message: string }>();
   const [lastRunId, setLastRunId] = useState<string>();
   const latestFailure = useSelector((state: RootState) => state.decisionFeedback.latest);
 
-  const actionableKeys = new Set(
-    artifacts.filter(isActionableProposal).map((artifact) => artifactKey(artifact.artifactType, artifact.targetId)),
-  );
+  const actionable = artifacts.filter(isActionableProposal);
+  const actionableKeys = new Set(actionable.map((artifact) => artifactKey(artifact.artifactType, artifact.targetId)));
+  const batchSelected = actionable.filter((artifact) => batchKeys.has(artifactKey(artifact.artifactType, artifact.targetId)));
+
+  const toggleBatchKey = (key: string): void => {
+    setBatchKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
   // Once the selected item leaves the actionable queue (approved / rejected / removed),
   // clear the detail panel and any stale feedback so it does not linger after the fact.
   useEffect(() => {
@@ -135,12 +157,78 @@ function ApprovalTab({
       });
       if (result.status === 'accepted') {
         setLastRunId(result.runId);
-        // The command is accepted asynchronously; the real decision outcome (commit
-        // vs review-rejected / workspace-invalid) arrives as a run.step.failed event
-        // or a queue refresh, surfaced below instead of a silent no-op.
         setFeedback({ kind: 'success', message: `${action} 已提交（run ${result.runId}），等待执行结果…` });
       } else {
         setFeedback({ kind: 'error', message: result.message ?? `命令被拒绝（${result.code}）。` });
+      }
+    } catch (cause) {
+      setFeedback({ kind: 'error', message: cause instanceof Error ? cause.message : String(cause) });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const handleBatchApprove = async (): Promise<void> => {
+    if (running || config === undefined) {
+      return;
+    }
+    const proposalIds = batchSelected
+      .map((artifact) => artifact.activeProposalId)
+      .filter((id): id is string => id !== undefined);
+    if (proposalIds.length === 0) {
+      setFeedback({ kind: 'error', message: '所选条目缺少活跃 proposal。' });
+      return;
+    }
+    setRunning(true);
+    setFeedback(undefined);
+    setLastRunId(undefined);
+    try {
+      const result = await runCommand({
+        workspaceId: config.workspaceId,
+        bookId: config.bookId,
+        intent: 'approve-batch',
+        proposalIds,
+        requestedBy: 'author-local',
+        approvalMode: 'manual',
+        idempotencyKey: `web-approve-batch-${Date.now().toString(36)}`,
+      });
+      if (result.status === 'accepted') {
+        setLastRunId(result.runId);
+        setBatchKeys(new Set());
+        setFeedback({ kind: 'success', message: `批量批准已提交 ${proposalIds.length} 项（run ${result.runId}），等待执行结果…` });
+      } else {
+        setFeedback({ kind: 'error', message: result.message ?? `批量批准被拒绝（${result.code}）。` });
+      }
+    } catch (cause) {
+      setFeedback({ kind: 'error', message: cause instanceof Error ? cause.message : String(cause) });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const handleOptimize = async (): Promise<void> => {
+    if (running || selected === undefined || config === undefined) {
+      return;
+    }
+    setRunning(true);
+    setFeedback(undefined);
+    setLastRunId(undefined);
+    try {
+      const result = await runCommand({
+        workspaceId: config.workspaceId,
+        bookId: config.bookId,
+        artifactType: selected.artifactType,
+        targetId: selected.targetId,
+        intent: 'optimize',
+        requestedBy: 'author-local',
+        approvalMode: 'manual',
+        idempotencyKey: `web-optimize-${selected.targetId}-${Date.now().toString(36)}`,
+      });
+      if (result.status === 'accepted') {
+        setLastRunId(result.runId);
+        setFeedback({ kind: 'success', message: `优化已提交（run ${result.runId}），等待生成 proposal…` });
+      } else {
+        setFeedback({ kind: 'error', message: result.message ?? `优化命令被拒绝（${result.code}）。` });
       }
     } catch (cause) {
       setFeedback({ kind: 'error', message: cause instanceof Error ? cause.message : String(cause) });
@@ -156,10 +244,31 @@ function ApprovalTab({
 
   return (
     <Box sx={{ display: 'grid', gap: 1.5 }}>
+      {batchSelected.length === 0 ? null : (
+        <Paper variant="outlined" sx={{ p: 1, display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Typography variant="body2" sx={{ flex: 1 }}>
+            已选 {batchSelected.length} 项
+          </Typography>
+          <Button
+            size="small"
+            variant="contained"
+            color="primary"
+            disabled={running}
+            onClick={() => void handleBatchApprove()}
+          >
+            批量批准
+          </Button>
+          <Button size="small" variant="outlined" disabled={running} onClick={() => setBatchKeys(new Set())}>
+            取消
+          </Button>
+        </Paper>
+      )}
       <ApprovalQueue
         artifacts={artifacts}
         {...(selected === undefined ? {} : { selectedKey: artifactKey(selected.artifactType, selected.targetId) })}
         onSelect={setSelected}
+        selectedKeys={batchKeys}
+        onToggleSelect={toggleBatchKey}
       />
       {selected === undefined ? null : (
         <Paper variant="outlined" sx={{ p: 1.25, display: 'grid', gap: 1 }}>
@@ -185,6 +294,11 @@ function ApprovalTab({
               该工件当前没有待处理的 proposal。
             </Typography>
           )}
+          {OPTIMIZABLE_ARTIFACT_TYPES.has(selected.artifactType) ? (
+            <Button size="small" variant="outlined" color="secondary" disabled={running} onClick={() => void handleOptimize()}>
+              ✨ 优化（LLM → proposal）
+            </Button>
+          ) : null}
           {shownFeedback === undefined ? null : (
             <Alert severity={shownFeedback.kind} sx={{ py: 0, '& .MuiAlert-message': { fontSize: 12 } }}>
               {shownFeedback.message}

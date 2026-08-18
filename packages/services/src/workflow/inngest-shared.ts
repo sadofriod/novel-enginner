@@ -45,6 +45,7 @@ export async function createPersistedProposal(input: {
     targetId: input.targetId,
     status: 'pending-review',
     intent: input.intent,
+    origin: 'generated',
     basedOnCanonicalVersion: input.canonicalVersion,
     parentRunId: input.parentRunId,
   };

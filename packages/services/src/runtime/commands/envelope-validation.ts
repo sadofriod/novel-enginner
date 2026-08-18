@@ -22,6 +22,16 @@ function validateSystemTaskEnvelope(envelope: CommandEnvelope): CommandEnvelopeV
   return undefined;
 }
 
+function validateBatchEnvelope(envelope: CommandEnvelope): CommandEnvelopeValidationError | undefined {
+  if (envelope.artifactType !== undefined || envelope.targetId !== undefined) {
+    return invalidEnvelope(`Intent "${envelope.intent}" is a batch decision and must not set "artifactType" or "targetId".`);
+  }
+  if (envelope.proposalIds === undefined || envelope.proposalIds.length === 0) {
+    return invalidEnvelope(`Intent "${envelope.intent}" requires non-empty "proposalIds".`);
+  }
+  return undefined;
+}
+
 function validateArtifactEnvelope(envelope: CommandEnvelope): CommandEnvelopeValidationError | undefined {
   if (envelope.systemTaskType !== undefined) {
     return invalidEnvelope(`Intent "${envelope.intent}" is not a system task and must not set "systemTaskType".`);
@@ -57,9 +67,12 @@ export function validateCommandEnvelope(
   logger.debug({ intent: envelope.intent, workspaceId: envelope.workspaceId, bookId: envelope.bookId }, 'Command envelope schema parsed');
 
   const isSystemIntent = SYSTEM_TASK_INTENTS.has(envelope.intent);
+  const isBatchIntent = envelope.intent === 'approve-batch';
   const error = isSystemIntent
     ? validateSystemTaskEnvelope(envelope)
-    : validateArtifactEnvelope(envelope);
+    : isBatchIntent
+      ? validateBatchEnvelope(envelope)
+      : validateArtifactEnvelope(envelope);
 
   if (error !== undefined) {
     logger.warn({ intent: envelope.intent, error: error.message }, 'Command envelope cross-field validation failed');

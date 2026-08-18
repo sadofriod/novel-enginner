@@ -14,9 +14,9 @@ const BASE_ENVELOPE = {
 };
 
 describe('applyBootstrapCommand', () => {
-  test('creates a recoverable new-book session at market research', () => {
+  test('creates a recoverable new-book session at market research', async () => {
     const store = new RuntimeStore();
-    const result = applyBootstrapCommand({
+    const result = await applyBootstrapCommand({
       store,
       envelope: BASE_ENVELOPE,
       runId: 'run-bootstrap-create-001',
@@ -32,16 +32,16 @@ describe('applyBootstrapCommand', () => {
     });
   });
 
-  test('appends an immutable dialogue revision to an existing session', () => {
+  test('appends an immutable dialogue revision to an existing session', async () => {
     const store = new RuntimeStore();
-    applyBootstrapCommand({
+    await applyBootstrapCommand({
       store,
       envelope: BASE_ENVELOPE,
       runId: 'run-bootstrap-create-001',
       payload: { sessionId: 'bootstrap-session-001', path: 'new-book' },
       now: () => new Date('2026-08-15T00:00:00.000Z'),
     });
-    const result = applyBootstrapCommand({
+    const result = await applyBootstrapCommand({
       store,
       envelope: { ...BASE_ENVELOPE, intent: 'submit-dialogue-round', systemTaskType: 'submit-dialogue-round' },
       runId: 'run-bootstrap-round-001',
@@ -65,37 +65,37 @@ describe('applyBootstrapCommand', () => {
     expect(result.events.map((event) => event.type)).toEqual(['bootstrap.session.updated']);
   });
 
-  test('requires five dialogue revisions before an author can continue to project brief', () => {
+  test('requires five dialogue revisions before an author can continue to project brief', async () => {
     const store = new RuntimeStore();
-    applyBootstrapCommand({
+    await applyBootstrapCommand({
       store,
       envelope: BASE_ENVELOPE,
       runId: 'run-bootstrap-create-001',
       payload: { sessionId: 'bootstrap-session-001', path: 'new-book' },
     });
-    const research = applyBootstrapCommand({
+    const research = await applyBootstrapCommand({
       store,
       envelope: { ...BASE_ENVELOPE, intent: 'submit-market-research', systemTaskType: 'submit-market-research' },
       runId: 'run-bootstrap-research-001',
       payload: { sessionId: 'bootstrap-session-001', summary: 'Market constraints recorded.' },
     });
     expect(research.events).toHaveLength(1);
-    applyBootstrapCommand({
+    await applyBootstrapCommand({
       store,
       envelope: { ...BASE_ENVELOPE, intent: 'continue-bootstrap-session', systemTaskType: 'continue-bootstrap-session' },
       runId: 'run-bootstrap-continue-market-001',
       payload: { sessionId: 'bootstrap-session-001' },
     });
 
-    expect(() => applyBootstrapCommand({
+    await expect(applyBootstrapCommand({
       store,
       envelope: { ...BASE_ENVELOPE, intent: 'continue-bootstrap-session', systemTaskType: 'continue-bootstrap-session' },
       runId: 'run-bootstrap-continue-dialogue-001',
       payload: { sessionId: 'bootstrap-session-001' },
-    })).toThrow('Five inspiration dialogue revisions');
+    })).rejects.toThrow('Five inspiration dialogue revisions');
 
     for (const round of [1, 2, 3, 4, 5]) {
-      applyBootstrapCommand({
+      await applyBootstrapCommand({
         store,
         envelope: { ...BASE_ENVELOPE, intent: 'submit-dialogue-round', systemTaskType: 'submit-dialogue-round' },
         runId: `run-bootstrap-round-${round}`,
@@ -103,7 +103,7 @@ describe('applyBootstrapCommand', () => {
       });
     }
 
-    const continued = applyBootstrapCommand({
+    const continued = await applyBootstrapCommand({
       store,
       envelope: { ...BASE_ENVELOPE, intent: 'continue-bootstrap-session', systemTaskType: 'continue-bootstrap-session' },
       runId: 'run-bootstrap-continue-dialogue-002',
@@ -116,15 +116,15 @@ describe('applyBootstrapCommand', () => {
     expect(continued.events.map((event) => event.type)).toEqual(['bootstrap.session.updated', 'bootstrap.stage.changed']);
   });
 
-  test('moves import scans to mapping review and supports explicit abandonment', () => {
+  test('moves import scans to mapping review and supports explicit abandonment', async () => {
     const store = new RuntimeStore();
-    applyBootstrapCommand({
+    await applyBootstrapCommand({
       store,
       envelope: BASE_ENVELOPE,
       runId: 'run-bootstrap-import-create-001',
       payload: { sessionId: 'bootstrap-import-001', path: 'import' },
     });
-    const scan = applyBootstrapCommand({
+    const scan = await applyBootstrapCommand({
       store,
       envelope: { ...BASE_ENVELOPE, intent: 'scan-import-directory', systemTaskType: 'scan-import-directory' },
       runId: 'run-bootstrap-import-scan-001',
@@ -136,7 +136,7 @@ describe('applyBootstrapCommand', () => {
       status: 'import-review',
     });
 
-    applyBootstrapCommand({
+    await applyBootstrapCommand({
       store,
       envelope: { ...BASE_ENVELOPE, intent: 'discard-bootstrap-session', systemTaskType: 'discard-bootstrap-session' },
       runId: 'run-bootstrap-import-discard-001',
@@ -145,16 +145,16 @@ describe('applyBootstrapCommand', () => {
     expect(store.getBootstrapSession('bootstrap-import-001')?.status).toBe('abandoned');
   });
 
-  test('auto-generates a schema-valid project-brief proposal after the five dialogue rounds', () => {
+  test('auto-generates a schema-valid project-brief proposal after the five dialogue rounds', async () => {
     const store = new RuntimeStore();
-    applyBootstrapCommand({
+    await applyBootstrapCommand({
       store,
       envelope: BASE_ENVELOPE,
       runId: 'run-bootstrap-generate-create-001',
       payload: { sessionId: 'bootstrap-generate-001', path: 'new-book', bookName: 'Nova Run' },
       now: () => new Date('2026-08-15T00:00:00.000Z'),
     });
-    applyBootstrapCommand({
+    await applyBootstrapCommand({
       store,
       envelope: { ...BASE_ENVELOPE, intent: 'continue-bootstrap-session', systemTaskType: 'continue-bootstrap-session' },
       runId: 'run-bootstrap-generate-to-dialogue-001',
@@ -163,7 +163,7 @@ describe('applyBootstrapCommand', () => {
     });
     const decisions = { genre: '科幻, 太空歌剧', targetAudience: '青年读者', readerPromise: '持续紧张感', corePremise: '在规则中追求自由', openingHook: '开场事件', contentBoundaries: '不剧透', format: '连载长篇' };
     for (const round of [1, 2, 3, 4, 5]) {
-      applyBootstrapCommand({
+      await applyBootstrapCommand({
         store,
         envelope: { ...BASE_ENVELOPE, intent: 'submit-dialogue-round', systemTaskType: 'submit-dialogue-round' },
         runId: `run-bootstrap-generate-round-${round}`,
@@ -172,7 +172,7 @@ describe('applyBootstrapCommand', () => {
       });
     }
 
-    const continued = applyBootstrapCommand({
+    const continued = await applyBootstrapCommand({
       store,
       envelope: { ...BASE_ENVELOPE, intent: 'continue-bootstrap-session', systemTaskType: 'continue-bootstrap-session' },
       runId: 'run-bootstrap-generate-continue-001',
@@ -193,9 +193,9 @@ describe('applyBootstrapCommand', () => {
     expect(store.getLastKnownSnapshot('workspace-bootstrap-test')?.snapshotId).toBe('snap-0001');
   });
 
-  test('persists market-research evidence through the restricted research port', () => {
+  test('persists market-research evidence through the restricted research port', async () => {
     const store = new RuntimeStore();
-    applyBootstrapCommand({
+    await applyBootstrapCommand({
       store,
       envelope: BASE_ENVELOPE,
       runId: 'run-bootstrap-evidence-create-001',
@@ -210,7 +210,7 @@ describe('applyBootstrapCommand', () => {
       }),
     };
 
-    const result = applyBootstrapCommand({
+    const result = await applyBootstrapCommand({
       store,
       envelope: { ...BASE_ENVELOPE, intent: 'submit-market-research', systemTaskType: 'submit-market-research' },
       runId: 'run-bootstrap-evidence-research-001',
@@ -218,7 +218,7 @@ describe('applyBootstrapCommand', () => {
         sessionId: 'bootstrap-evidence-001',
         summary: 'Trend brief.',
         sources: [
-          { url: 'https://archive.org/details/trend', title: 'Trend Report', summary: 'Readers want  A '.repeat(50) + 'nuance.' },
+          { url: 'https://archive.org/details/trend', title: 'Trend Report', summary: 'Readers want ' + 'A '.repeat(50) + 'nuance.' },
           { url: 'https://example.com/leak', title: 'Restricted', summary: 'summary' },
         ],
       },
@@ -243,7 +243,7 @@ describe('applyBootstrapCommand', () => {
     expect(revision?.evidenceIds).toEqual([permissive.id, blocked.id]);
   });
 
-  test('blocks continuing to write when the import health report is not ready', () => {
+  test('blocks continuing to write when the import health report is not ready', async () => {
     const store = new RuntimeStore();
     const session = {
       id: 'bootstrap-import-health-001',
@@ -264,16 +264,16 @@ describe('applyBootstrapCommand', () => {
       draft: { ready: false, missingArtifacts: ['world-foundation'] },
     });
 
-    expect(() => applyBootstrapCommand({
+    await expect(applyBootstrapCommand({
       store,
       envelope: { ...BASE_ENVELOPE, intent: 'continue-bootstrap-session', systemTaskType: 'continue-bootstrap-session' },
       runId: 'run-bootstrap-import-continue-001',
       payload: { sessionId: session.id },
-    })).toThrow('Import health report is not ready');
+    })).rejects.toThrow('Import health report is not ready');
     expect(store.getBootstrapSession(session.id)?.status).toBe('import-review');
   });
 
-  test('allows continuing to write once the import health report is ready', () => {
+  test('allows continuing to write once the import health report is ready', async () => {
     const store = new RuntimeStore();
     const session = {
       id: 'bootstrap-import-health-ready-001',
@@ -294,7 +294,7 @@ describe('applyBootstrapCommand', () => {
       draft: { ready: true, missingArtifacts: [] },
     });
 
-    const result = applyBootstrapCommand({
+    const result = await applyBootstrapCommand({
       store,
       envelope: { ...BASE_ENVELOPE, intent: 'continue-bootstrap-session', systemTaskType: 'continue-bootstrap-session' },
       runId: 'run-bootstrap-import-continue-ready-001',

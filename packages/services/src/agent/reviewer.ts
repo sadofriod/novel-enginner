@@ -179,8 +179,10 @@ export function assembleReviewerResult(
   text: string,
   modelEvidence: ModelEvidence,
   rules: ReviewerRuleThresholds = DEFAULT_REVIEWER_RULE_THRESHOLDS,
+  evidenceSource: 'model' | 'rules' = 'rules',
+  includeRuleFailures = true,
 ): ReviewerResult {
-  const ruleFailures = detectRuleHardFailures(text, rules);
+  const ruleFailures = includeRuleFailures ? detectRuleHardFailures(text, rules) : [];
   const hardFailures = [...ruleFailures, ...modelEvidence.hardFailures];
   const dimensionScores = DimensionScoresSchema.parse(modelEvidence.dimensionScores);
   const totalScore = sumWeightedScore(dimensionScores);
@@ -192,6 +194,7 @@ export function assembleReviewerResult(
     totalScore,
     rewriteDirectives: modelEvidence.rewriteDirectives,
     overrideEligible: isOverrideEligible(hardFailures),
+    evidenceSource,
   });
 }
 

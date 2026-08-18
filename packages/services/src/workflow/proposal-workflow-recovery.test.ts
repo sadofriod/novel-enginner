@@ -19,6 +19,7 @@ function makeProposal(overrides: Partial<Proposal> = {}): Proposal {
     targetId: 'chapter-0042-outline',
     status: 'pending-approval',
     intent: 'propose',
+    origin: 'author',
     basedOnCanonicalVersion: 'snap-0001',
     parentRunId: 'run-chapter-0042-001',
     ...overrides,

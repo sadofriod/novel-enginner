@@ -31,6 +31,10 @@ export const CANONICAL_ARTIFACT_STATUS_VALUES = [
 
 export type CanonicalArtifactStatus = (typeof CANONICAL_ARTIFACT_STATUS_VALUES)[number];
 
+export const PROPOSAL_ORIGIN_VALUES = ['imported', 'generated', 'author'] as const;
+
+export type ProposalOrigin = (typeof PROPOSAL_ORIGIN_VALUES)[number];
+
 export const PROPOSAL_STATUS_VALUES = [
   'pending-review',
   'pending-approval',
@@ -104,6 +108,7 @@ export const SYSTEM_TASK_TYPE_VALUES = [
   'scan-import-directory',
   'confirm-import',
   'discard-bootstrap-session',
+  'retrospective-review',
 ] as const;
 
 export type SystemTaskType = (typeof SYSTEM_TASK_TYPE_VALUES)[number];
@@ -111,7 +116,9 @@ export type SystemTaskType = (typeof SYSTEM_TASK_TYPE_VALUES)[number];
 export const COMMAND_INTENT_VALUES = [
   'propose',
   'regenerate',
+  'optimize',
   'approve',
+  'approve-batch',
   'reject',
   'override-approve',
   'export-draft',
@@ -124,6 +131,7 @@ export const COMMAND_INTENT_VALUES = [
   'scan-import-directory',
   'confirm-import',
   'discard-bootstrap-session',
+  'retrospective-review',
   'retry-step',
   'resume-run',
   'abort-run',

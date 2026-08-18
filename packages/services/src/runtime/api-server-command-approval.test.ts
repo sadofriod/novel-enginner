@@ -62,7 +62,7 @@ describe('command envelope validation', () => {
       store,
       eventBus,
       loadActiveProposal: async () => ({
-        proposalId: 'proposal-export-001', artifactType: 'chapter-outline', targetId: 'chapter-0042-outline', status: 'pending-approval', intent: 'propose', basedOnCanonicalVersion: snapshot.snapshotId, parentRunId: 'run-export-001',
+        proposalId: 'proposal-export-001', artifactType: 'chapter-outline', targetId: 'chapter-0042-outline', status: 'pending-approval', intent: 'propose', origin: 'author', basedOnCanonicalVersion: snapshot.snapshotId, parentRunId: 'run-export-001',
       }),
     });
     const response = await postJson(fetch, '/commands', { ...BASE_ENVELOPE, intent: 'export-draft', idempotencyKey: 'cmd-export-001' });
@@ -82,6 +82,7 @@ describe('command envelope validation', () => {
       targetId: 'chapter-0042-outline',
       status: 'pending-approval' as const,
       intent: 'propose' as const,
+      origin: 'author' as const,
       basedOnCanonicalVersion: snapshot.snapshotId,
       parentRunId: 'run-proposal-waiting-sync',
     };
@@ -125,6 +126,7 @@ describe('command envelope validation', () => {
       targetId: 'chapter-0042-outline',
       status: 'pending-approval',
       intent: 'propose',
+      origin: 'author',
       basedOnCanonicalVersion: snapshot.snapshotId,
       parentRunId: 'run-proposal-confirm-after-sync',
     };

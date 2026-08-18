@@ -78,6 +78,7 @@ describe('command envelope validation', () => {
       targetId: 'chapter-0042-outline',
       status: 'pending-approval' as const,
       intent: 'propose' as const,
+      origin: 'author' as const,
       basedOnCanonicalVersion: snapshot.snapshotId,
       parentRunId: 'run-proposal-001',
     };
@@ -126,6 +127,7 @@ describe('command envelope validation', () => {
       targetId: 'chapter-0042-outline',
       status: 'pending-approval' as const,
       intent: 'propose' as const,
+      origin: 'author' as const,
       basedOnCanonicalVersion: snapshot.snapshotId,
       parentRunId: 'run-proposal-bundle-001',
       bundledDiffRefs: ['draft-character-mira-bundle-001'],
@@ -173,6 +175,7 @@ describe('command envelope validation', () => {
       targetId: 'chapter-0042-outline',
       status: 'pending-approval' as const,
       intent: 'propose' as const,
+      origin: 'author' as const,
       basedOnCanonicalVersion: snapshot.snapshotId,
       parentRunId: 'run-proposal-missing-bundle-001',
       bundledDiffRefs: ['draft-character-missing-001'],
@@ -213,6 +216,7 @@ describe('command envelope validation', () => {
       targetId: 'chapter-0042-outline',
       status: 'pending-approval' as const,
       intent: 'propose' as const,
+      origin: 'author' as const,
       basedOnCanonicalVersion: snapshot.snapshotId,
       parentRunId: 'run-proposal-persisted-draft',
     };
@@ -256,6 +260,7 @@ describe('command envelope validation', () => {
       targetId: 'tech-tide-clock',
       status: 'pending-approval' as const,
       intent: 'propose' as const,
+      origin: 'author' as const,
       basedOnCanonicalVersion: snapshot.snapshotId,
       parentRunId: 'run-proposal-tech-rule-001',
     };
@@ -304,6 +309,7 @@ describe('command envelope validation', () => {
       targetId: 'chapter-0042-outline',
       status: 'pending-approval' as const,
       intent: 'propose' as const,
+      origin: 'author' as const,
       basedOnCanonicalVersion: snapshot.snapshotId,
       parentRunId: 'run-proposal-missing-draft',
     };

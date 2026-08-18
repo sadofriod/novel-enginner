@@ -6,6 +6,7 @@ import { getNextStageId } from '../bootstrap/stages/stage-defs';
 import { abandonBootstrapSession } from '../bootstrap/state-machine/state-machine';
 import { extractCleanedSummary } from '../bootstrap/research/research-orchestrator';
 import { defaultMarketResearchPort, type MarketResearchPort } from '../bootstrap/research/market-research-port';
+import type { ModelProvider } from '../agent/provider';
 import { NEW_BOOK_PROPOSAL_STAGES, seedChapterOutlineBatch, seedStageProposal } from './bootstrap-stage-seeding';
 import type { RunEvent } from './event-bus';
 import { RuntimeStore } from './store';
@@ -18,6 +19,7 @@ export interface ApplyBootstrapCommandInput {
   readonly runId: string;
   readonly payload: BootstrapCommandPayload;
   readonly marketResearchPort?: MarketResearchPort;
+  readonly provideModel?: () => ModelProvider;
   readonly now?: () => Date;
 }
 
@@ -153,7 +155,7 @@ function saveSessionRevision(
   return revisionId;
 }
 
-function continueSession(input: ApplyBootstrapCommandInput, emittedAt: string): ApplyBootstrapCommandResult {
+async function continueSession(input: ApplyBootstrapCommandInput, emittedAt: string): Promise<ApplyBootstrapCommandResult> {
   const session = requireSession(input);
   if (session.path === 'new-book' && session.currentStage === 'inspiration-dialogue'
     && input.store.listBootstrapRevisions(session.id).filter((revision) => revision.stage === 'inspiration-dialogue').length < 5) {
@@ -161,7 +163,7 @@ function continueSession(input: ApplyBootstrapCommandInput, emittedAt: string): 
   }
 
   if (session.path === 'new-book' && session.status === 'advancing' && NEW_BOOK_PROPOSAL_STAGES.has(session.currentStage)) {
-    seedStageProposal(input, session, session.currentStage);
+    await seedStageProposal(input, session, session.currentStage);
     input.store.upsertBootstrapSession({ ...session, status: 'awaiting-approval', updatedAt: emittedAt });
     return { events: [
       event('bootstrap.session.updated', input.runId, emittedAt, { sessionId: session.id, status: 'awaiting-approval' }),
@@ -183,7 +185,7 @@ function continueSession(input: ApplyBootstrapCommandInput, emittedAt: string): 
       ] };
     }
     if (session.path === 'new-book' && session.currentStage === 'chapter-outline-batch') {
-      seedChapterOutlineBatch(input, session);
+      await seedChapterOutlineBatch(input, session);
       input.store.upsertBootstrapSession({ ...session, status: 'awaiting-approval', updatedAt: emittedAt });
       return { events: [
         event('bootstrap.session.updated', input.runId, emittedAt, { sessionId: session.id, status: 'awaiting-approval' }),
@@ -196,7 +198,7 @@ function continueSession(input: ApplyBootstrapCommandInput, emittedAt: string): 
     summary: `Author explicitly continued from ${session.currentStage} to ${nextStage}.`,
     stage: nextStage,
   });
-  const seeded = seedStageProposal(input, session, nextStage);
+  const seeded = await seedStageProposal(input, session, nextStage);
   input.store.upsertBootstrapSession({
     ...session,
     status: session.path === 'import'
@@ -309,7 +311,7 @@ function discardSession(input: ApplyBootstrapCommandInput, emittedAt: string): A
   return { events: [event('bootstrap.session.updated', input.runId, emittedAt, { sessionId: session.id, status: 'abandoned' })] };
 }
 
-export function applyBootstrapCommand(input: ApplyBootstrapCommandInput): ApplyBootstrapCommandResult {
+export async function applyBootstrapCommand(input: ApplyBootstrapCommandInput): Promise<ApplyBootstrapCommandResult> {
   const emittedAt = (input.now?.() ?? new Date()).toISOString();
   if (input.envelope.intent === 'create-bootstrap-session') {
     return createSession(input, emittedAt);
@@ -318,7 +320,7 @@ export function applyBootstrapCommand(input: ApplyBootstrapCommandInput): ApplyB
     return appendDialogueRevision(input, emittedAt);
   }
   if (input.envelope.intent === 'continue-bootstrap-session') {
-    return continueSession(input, emittedAt);
+    return await continueSession(input, emittedAt);
   }
   if (input.envelope.intent === 'submit-market-research') {
     return submitResearch(input, emittedAt);

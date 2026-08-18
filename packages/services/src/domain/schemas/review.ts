@@ -37,6 +37,8 @@ export const ReviewerResultSchema = z
     totalScore: ScoreSchema,
     rewriteDirectives: z.array(NonEmptyStringSchema).readonly(),
     overrideEligible: z.boolean(),
+    /** Provenance of the review evidence: `model` = real LLM evidence, `rules` = deterministic rules only (or absent). */
+    evidenceSource: z.enum(['model', 'rules']).optional(),
   })
   .readonly();
 

@@ -45,6 +45,7 @@ export const SYSTEM_TASK_INTENTS: ReadonlySet<CommandIntent> = new Set([
   'scan-import-directory',
   'confirm-import',
   'discard-bootstrap-session',
+  'retrospective-review',
 ]);
 
 /**
@@ -55,7 +56,9 @@ export const SYSTEM_TASK_INTENTS: ReadonlySet<CommandIntent> = new Set([
 export const NEXT_EXPECTED_STATE_BY_INTENT: Record<CommandIntent, string> = {
   propose: 'proposal-pending',
   regenerate: 'proposal-pending',
+  optimize: 'proposal-pending',
   approve: 'canonical-committed',
+  'approve-batch': 'canonical-committed',
   reject: 'proposal-rejected',
   'override-approve': 'canonical-committed',
   'export-draft': 'proposal-exported',
@@ -68,6 +71,7 @@ export const NEXT_EXPECTED_STATE_BY_INTENT: Record<CommandIntent, string> = {
   'scan-import-directory': 'bootstrap-import-scanned',
   'confirm-import': 'bootstrap-import-confirmed',
   'discard-bootstrap-session': 'bootstrap-session-abandoned',
+  'retrospective-review': 'proposal-pending',
   'retry-step': 'run-resumed',
   'resume-run': 'run-resumed',
   'abort-run': 'run-aborted',

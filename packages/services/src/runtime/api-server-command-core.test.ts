@@ -149,14 +149,15 @@ describe('command envelope validation', () => {
       expect(response.status).toBe(202);
       expect(store.getBootstrapSession('bootstrap-import-api')?.currentStage).toBe('import-health-report');
       expect(store.listBootstrapRevisions('bootstrap-import-api')[0]?.draft).toMatchObject({ ready: false });
-      expect(await Bun.file(`${targetRoot}/state/book/project-brief.md`).text()).toBe('brief');
+      // Nothing is written to the canonical root before the author approves the import proposals.
+      expect(await Bun.file(`${targetRoot}/state/book/project-brief.md`).exists()).toBe(false);
     } finally {
       await rm(sourceRoot, { recursive: true, force: true });
       await rm(targetRoot, { recursive: true, force: true });
     }
   });
 
-  test('moves a complete confirmed import to ready-to-write and stores its first snapshot', async () => {
+  test('creates imported proposals and holds the session in import-review until author approval', async () => {
     const sourceRoot = await mkdtemp('/tmp/novel-import-api-ready-src-');
     const targetRoot = await mkdtemp('/tmp/novel-import-api-ready-tgt-');
     await writeReadyImportSource(sourceRoot);
@@ -171,14 +172,15 @@ describe('command envelope validation', () => {
         mapping: readyImportMapping(),
       });
       expect(response.status).toBe(202);
+      const body = await response.json();
 
-      expect(store.getBootstrapSession('bootstrap-import-ready')?.status).toBe('ready-to-write');
+      expect(store.getBootstrapSession('bootstrap-import-ready')?.status).toBe('import-review');
       expect(store.getBootstrapSession('bootstrap-import-ready')?.currentStage).toBe('import-health-report');
-      const snapshot = store.getLastKnownSnapshot('workspace-import-api-ready');
-      expect(snapshot).toBeDefined();
-      expect(snapshot?.entities.size).toBe(6);
-      const types = eventBus.history(JSON.parse(await response.text()).runId).map((event) => event.type);
-      expect(types).toContain('bootstrap.ready-to-write');
+      const firstProposal = store.getProposal(`proposal-${body.runId}-1`);
+      expect(firstProposal).toMatchObject({ origin: 'imported', status: 'pending-approval', intent: 'propose' });
+      const types = eventBus.history(body.runId).map((event) => event.type);
+      expect(types).toContain('bootstrap.import-proposals-created');
+      expect(types).not.toContain('bootstrap.ready-to-write');
     } finally {
       await rm(sourceRoot, { recursive: true, force: true });
       await rm(targetRoot, { recursive: true, force: true });
@@ -238,6 +240,7 @@ describe('command envelope validation', () => {
         targetId: brief.id,
         status: 'pending-approval',
         intent: 'propose',
+        origin: 'author',
         basedOnCanonicalVersion: baseline.snapshotId,
         parentRunId: 'run-brief-approve-001',
       }),
@@ -331,6 +334,7 @@ describe('command envelope validation', () => {
         targetId: 'chapter-0042-outline',
         status: 'pending-approval',
         intent: 'propose',
+        origin: 'author',
         basedOnCanonicalVersion: snapshot.snapshotId,
         parentRunId: 'run-approval-dispatch-001',
         };

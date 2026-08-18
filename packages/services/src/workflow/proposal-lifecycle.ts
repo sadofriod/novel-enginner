@@ -92,7 +92,7 @@ export function createProposal({ proposal, registry }: CreateProposalInput): Cre
 
 export interface ApprovabilityRejection {
   readonly eligible: false;
-  readonly reason: 'snapshot-drift' | 'not-pending-approval' | 'review-required' | 'review-rejected' | 'override-not-eligible';
+  readonly reason: 'snapshot-drift' | 'not-pending-approval' | 'review-required' | 'review-rejected' | 'override-not-eligible' | 'model-evidence-required';
   readonly message: string;
 }
 
@@ -101,6 +101,14 @@ export interface ApprovabilityApproval {
 }
 
 export type ApprovabilityResult = ApprovabilityRejection | ApprovabilityApproval;
+
+/**
+ * Imported and LLM-generated content must pass a real model-evidence review before
+ * approval (RQ2/RQ3/F10); author-typed content stays on the deterministic rule gate.
+ */
+export function requiresModelEvidence(proposal: Proposal): boolean {
+  return proposal.origin === 'imported' || proposal.origin === 'generated';
+}
 
 /**
  * docs/architecture/modules/07-api-events-and-runtime.md §7.4.2:
@@ -130,6 +138,16 @@ export function evaluateApprovability(
         `Proposal "${proposal.proposalId}" is based on canonical version ` +
         `"${proposal.basedOnCanonicalVersion}" which is stale relative to current ` +
         `"${currentCanonicalVersion}"; regenerate before it can be approved.`,
+    };
+  }
+
+  if (requiresModelEvidence(proposal) && reviewerResult?.evidenceSource !== 'model') {
+    return {
+      eligible: false,
+      reason: 'model-evidence-required',
+      message:
+        `Proposal "${proposal.proposalId}" (origin ${proposal.origin}) requires real model evidence ` +
+        'before approval; a rules-only review is not sufficient.',
     };
   }
 

@@ -1,10 +1,12 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { basename, relative, resolve } from 'node:path';
 
+import type { WorkspaceFileInput } from '../../workspace/sync-engine';
 import { generateReport } from '../health/health-report';
 import type { BootstrapHealthIssue, BootstrapHealthReport } from '../types';
+import { buildImportDiagnosis, type BuildImportDiagnosisResult } from './build-import-diagnosis';
+import { buildImportProposals, type ImportProposalItem } from './build-import-proposals';
 import type { ImportMapping } from './import-mapper';
-import { reconcileImportedWorkspace, type ImportReconcileResult } from './import-reconcile';
 
 const REQUIRED_ARTIFACTS = ['project-brief', 'world-foundation', 'story-blueprint', 'volume', 'chapter'] as const;
 const ISOLATION_DIRECTORY = 'references/imported/unmapped';
@@ -13,16 +15,21 @@ export interface ConfirmImportInput {
   readonly sourceRoot: string;
   readonly targetRoot: string;
   readonly mapping: ImportMapping;
+  readonly runId: string;
+  readonly snapshotId: string;
+  /** Current canonical workspace files, so the informational diagnosis resolves references into existing content. */
+  readonly existingFiles?: readonly WorkspaceFileInput[];
 }
 
 export interface ConfirmImportResult {
-  readonly copiedPaths: readonly string[];
-  /** Relative paths of unrecognized source material quarantined into `references/imported/`; not canonical. */
+  /** `pending-approval` proposals (origin `imported`) with their canonical drafts. Nothing is written to disk here. */
+  readonly proposals: readonly ImportProposalItem[];
+  /** Source paths that could not be mapped to a valid canonical proposal. */
   readonly isolatedPaths: readonly string[];
   readonly healthReport: BootstrapHealthReport;
-  /** `true` when the copied workspace has no missing artifacts, no broken references, and no canonical validation errors. */
+  /** Informational phase-1 gate over the proposed drafts; the full gate runs again after approval + commit. */
   readonly readyToWrite: boolean;
-  readonly reconcile: ImportReconcileResult;
+  readonly diagnosis: BuildImportDiagnosisResult;
 }
 
 function ensureInsideRoot(root: string, path: string, description: string): string {
@@ -80,38 +87,30 @@ function missingArtifacts(mapping: ImportMapping): readonly string[] {
 }
 
 /**
- * Copies an author-approved import mapping into a new canonical workspace without
- * altering the source directory, then runs the canonical parser → validation →
- * reference-diagnosis → snapshot pipeline over the copied files so the import health
- * gate reflects a real re-sync state
+ * Confirms an author-approved import mapping by building `pending-approval`
+ * proposals (origin `imported`) with canonical drafts — without writing anything to
+ * the canonical workspace until the author approves. The informational phase-1
+ * diagnosis (canonical parse → validation → reference-diagnosis) runs over the
+ * proposed drafts merged with the existing workspace, so broken references surface
+ * before approval; the full gate runs again over real files after commit
  * (docs/architecture/modules/11-bootstrap-and-onboarding.md §11.4).
  */
 export async function confirmImport(input: ConfirmImportInput): Promise<ConfirmImportResult> {
-  const entries = validateEntries(input);
-  const contents = await Promise.all(entries.map(async (entry) => ({ ...entry, content: await readFile(entry.source, 'utf8') })));
-  await Promise.all(contents.map(async (entry) => {
-    await mkdir(dirname(entry.target), { recursive: true });
-    await writeFile(entry.target, entry.content, 'utf8');
-  }));
-  // Isolated material stays quarantined under references/imported/ and does not
-  // participate in canonical generation (§11.4).
-  const canonicalFiles = contents.filter((entry) => !entry.isolated).map((entry) => ({ path: entry.relativeTarget, content: entry.content }));
-  const reconcile = reconcileImportedWorkspace(canonicalFiles);
-  const isolatedPaths = contents.filter((entry) => entry.isolated).map((entry) => entry.relativeTarget).sort();
+  validateEntries(input);
+  const readContent = async (sourcePath: string): Promise<string> => readFile(ensureInsideRoot(input.sourceRoot, sourcePath, 'Import source path'), 'utf8');
+  const built = await buildImportProposals({ mapping: input.mapping, runId: input.runId, snapshotId: input.snapshotId, readContent });
+  const diagnosis = buildImportDiagnosis({ drafts: built.items.map((item) => item.draft), existingFiles: input.existingFiles ?? [] });
   const healthReport = generateReport(
     missingArtifacts(input.mapping),
-    reconcile.unresolvedReferences,
-    reconcile.errors,
-    collectIsolationIssues(isolatedPaths),
+    diagnosis.unresolvedReferences,
+    [],
+    collectIsolationIssues(built.isolatedPaths),
   );
-  const reportPath = ensureInsideRoot(input.targetRoot, 'references/imported/health-report.json', 'Health report path');
-  await mkdir(dirname(reportPath), { recursive: true });
-  await writeFile(reportPath, `${JSON.stringify(healthReport, null, 2)}\n`, 'utf8');
   return {
-    copiedPaths: entries.map((entry) => entry.relativeTarget).sort(),
-    isolatedPaths,
+    proposals: built.items,
+    isolatedPaths: built.isolatedPaths,
     healthReport,
-    readyToWrite: healthReport.ready,
-    reconcile,
+    readyToWrite: diagnosis.ready,
+    diagnosis,
   };
 }

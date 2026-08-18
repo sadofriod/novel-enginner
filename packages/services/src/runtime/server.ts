@@ -5,6 +5,7 @@ import { serve as serveInngest } from 'inngest/bun';
 
 import { createApiServer } from './api-server';
 import { createChildLogger } from '../common/logger';
+import { createDefaultModelProvider } from '../agent/provider';
 import { seedWebConsoleFixture } from './seed-web-fixtures';
 import { createWorkspaceEventRelay } from './ws-relay';
 import { readCanonicalWorkspaceFiles, startWorkspaceFileWatcher } from '../workspace/file-watcher';
@@ -33,7 +34,10 @@ logger.debug('Validating capability startup');
 validateCapabilityStartup(registryMarkdown, mcpConfig, workspaceRoot);
 logger.info('Capability validation successful');
 
-const apiServer = createApiServer({ workspaceRoot });
+const apiServer = createApiServer({
+  workspaceRoot,
+  provideModel: () => createDefaultModelProvider(process.env, workspaceRoot),
+});
 logger.info('API server created');
 const inngestBaseUrl = process.env['INNGEST_BASE_URL']?.trim();
 const inngestSigningKey = process.env['INNGEST_SIGNING_KEY']?.trim();

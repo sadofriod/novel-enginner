@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 
+import type { ModelProvider } from '../agent/provider';
 import { createApiServer } from './api-server';
 import { RuntimeStore } from './store';
 import { reSyncState } from '../workspace/sync-engine';
@@ -10,6 +11,31 @@ import { generateProjectBriefProposal } from '../bootstrap/research/research-orc
 const WORKSPACE_ID = 'workspace-bootstrap-chain';
 const BOOK_ID = 'book-bootstrap-chain';
 const SESSION_ID = 'bootstrap-chain-001';
+
+/** Fake provider that passes every model review, so generated content clears the model-evidence gate. */
+const passingModelProvider: ModelProvider = {
+  providerId: 'fake',
+  providerVersion: 'test',
+  resolveModelId: () => 'fake-model',
+  complete: async () => ({
+    text: JSON.stringify({
+      hardFailures: [],
+      dimensionScores: {
+        antiAiVoice: 90,
+        webFictionPacing: 90,
+        emotionCurve: 90,
+        characterConsistency: 90,
+        settingConsistency: 90,
+        clueCausality: 90,
+        readabilityLayout: 90,
+        languageTexture: 90,
+      },
+      rewriteDirectives: [],
+    }),
+    modelId: 'fake-model',
+    providerVersion: 'test',
+  }),
+};
 
 function postJson(fetch: (request: Request) => Promise<Response>, path: string, body: unknown): Promise<Response> {
   return fetch(
@@ -60,6 +86,7 @@ describe('new-book bootstrap full chain (acceptance #11)', () => {
     const { fetch, eventBus } = createApiServer({
       store,
       workspaceRoot,
+      provideModel: () => passingModelProvider,
       loadActiveProposal: async (_workspaceId, _bookId, artifactType, targetId) => store.getActiveProposal(artifactType, targetId),
       loadCanonicalDraft: async (proposalId) => store.getCanonicalDraft(proposalId),
     });

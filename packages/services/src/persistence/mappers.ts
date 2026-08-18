@@ -27,6 +27,7 @@ export interface ProposalRow {
   targetId: string;
   status: string;
   intent: string;
+  origin: string;
   basedOnCanonicalVersion: string;
   entityVersionRefs: Prisma.JsonValue | null;
   parentRunId: string;
@@ -58,6 +59,7 @@ export function toProposalCreateInput(
     targetId: validated.targetId,
     status: validated.status,
     intent: validated.intent,
+    origin: validated.origin,
     basedOnCanonicalVersion: validated.basedOnCanonicalVersion,
     parentRunId: validated.parentRunId,
     supersedesProposalId: validated.supersedesProposalId ?? null,
@@ -89,6 +91,7 @@ export function fromProposalRow(row: ProposalRow): Proposal {
     artifactType: row.artifactType,
     targetId: row.targetId,
     status: row.status,
+    origin: row.origin,
     intent: row.intent,
     basedOnCanonicalVersion: row.basedOnCanonicalVersion,
     parentRunId: row.parentRunId,

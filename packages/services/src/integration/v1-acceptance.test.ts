@@ -36,6 +36,7 @@ function proposal(overrides: Partial<Proposal> = {}): Proposal {
     targetId: 'chapter-0001-outline',
     status: 'pending-approval',
     intent: 'propose',
+    origin: 'author',
     basedOnCanonicalVersion: 'snap-0001',
     parentRunId: 'run-integration-001',
     ...overrides,

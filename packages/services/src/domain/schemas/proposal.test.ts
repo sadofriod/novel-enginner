@@ -31,6 +31,22 @@ describe('proposal and command schemas', () => {
     ).toMatchObject({ artifactType: 'chapter-manuscript' });
   });
 
+  test('ProposalSchema defaults origin to author and validates origin values', () => {
+    const base = {
+      proposalId: 'proposal-origin-001',
+      artifactType: 'chapter-outline',
+      targetId: 'chapter-1',
+      status: 'pending-approval',
+      intent: 'propose',
+      basedOnCanonicalVersion: 'snap-1',
+      parentRunId: 'run-001',
+    };
+    expect(ProposalSchema.parse(base).origin).toBe('author');
+    expect(ProposalSchema.parse({ ...base, origin: 'imported' }).origin).toBe('imported');
+    expect(ProposalSchema.parse({ ...base, origin: 'generated' }).origin).toBe('generated');
+    expect(ProposalSchema.safeParse({ ...base, origin: 'unknown-origin' }).success).toBe(false);
+  });
+
   test('CommandEnvelopeSchema requires workspace, book, intent, requester, and idempotency', () => {
     expect(
       CommandEnvelopeSchema.parse({

@@ -22,4 +22,4 @@ emotionCurveStageIds:
 
 # Outline
 
-The chapter advances the investigation.
+太短了。

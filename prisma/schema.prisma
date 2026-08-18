@@ -62,6 +62,7 @@ model Proposal {
   targetId                String
   status                  String
   intent                  String
+  origin                  String   @default("author")
   basedOnCanonicalVersion String
   entityVersionRefs       Json?
   parentRunId             String

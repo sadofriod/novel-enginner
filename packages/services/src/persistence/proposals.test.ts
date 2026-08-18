@@ -17,6 +17,7 @@ const proposal: Proposal = {
   targetId: 'chapter-proposals-test',
   status: 'pending-approval',
   intent: 'propose',
+  origin: 'author',
   basedOnCanonicalVersion: 'snap-1',
   parentRunId: 'run-proposals-test',
 };

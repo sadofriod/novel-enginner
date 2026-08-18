@@ -137,6 +137,15 @@ export class RuntimeStore {
     return this.proposalsByKey.get(artifactKey(artifactType, targetId));
   }
 
+  getProposal(proposalId: string): Proposal | undefined {
+    for (const proposal of this.proposalsByKey.values()) {
+      if (proposal.proposalId === proposalId) {
+        return proposal;
+      }
+    }
+    return undefined;
+  }
+
   saveReviewerResult(reviewResultId: string, result: ReviewerResult): void {
     this.reviewerResultsByReviewResultId.set(reviewResultId, result);
   }

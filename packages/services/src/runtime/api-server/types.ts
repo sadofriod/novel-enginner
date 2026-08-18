@@ -29,6 +29,8 @@ export interface CreateApiServerOptions {
     readonly editedText?: string;
     readonly proposalId?: string;
   }) => Promise<void>;
+  /** Provides the LLM model used by sync runtime flows (`optimize`). Defaults to the env-configured OpenAI provider. */
+  readonly provideModel?: () => import('../../agent/provider').ModelProvider;
   readonly persistBootstrapState?: (session: BootstrapSession, revision?: BootstrapRevision) => Promise<void>;
   readonly marketResearchPort?: import('../../bootstrap/research/market-research-port').MarketResearchPort;
   readonly readCanonicalFiles?: (workspaceRoot: string) => Promise<readonly import('../../workspace/sync-engine').WorkspaceFileInput[]>;

@@ -68,6 +68,7 @@ export function seedWebConsoleFixture(store: RuntimeStore): void {
     targetId: 'chapter-0042-outline',
     status: 'pending-approval',
     intent: 'propose',
+    origin: 'generated',
     basedOnCanonicalVersion: 'snap-0001',
     parentRunId: 'run-seed-001',
   };

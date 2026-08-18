@@ -95,6 +95,7 @@ export interface CommandInput {
   readonly artifactType?: string;
   readonly systemTaskType?: string;
   readonly targetId?: string;
+  readonly proposalIds?: readonly string[];
   readonly intent: string;
   readonly requestedBy: string;
   readonly approvalMode: 'manual';

@@ -10,5 +10,6 @@ export * from './schemas/canonical';
 export * from './schemas/chapter';
 export * from './schemas/proposal';
 export * from './schemas/review';
+export * from './schemas/proposal-review';
 export * from './registry-schemas';
 export * from './schema-types';

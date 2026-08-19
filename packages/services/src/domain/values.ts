@@ -38,6 +38,7 @@ export type ProposalOrigin = (typeof PROPOSAL_ORIGIN_VALUES)[number];
 export const PROPOSAL_STATUS_VALUES = [
   'pending-review',
   'pending-approval',
+  'changes-requested',
   'approved',
   'rejected',
   'override-approved',
@@ -50,6 +51,16 @@ export const PROPOSAL_STATUS_VALUES = [
 ] as const;
 
 export type ProposalStatus = (typeof PROPOSAL_STATUS_VALUES)[number];
+
+/** Disposition carried by a submitted proposal review (GitHub PR-review style). */
+export const REVIEW_DISPOSITION_VALUES = ['request-changes'] as const;
+
+export type ReviewDisposition = (typeof REVIEW_DISPOSITION_VALUES)[number];
+
+/** Diff side an inline review thread anchors to: `L` = canonical (old), `R` = proposed (new). */
+export const THREAD_SIDE_VALUES = ['L', 'R'] as const;
+
+export type ThreadSide = (typeof THREAD_SIDE_VALUES)[number];
 
 export const PLANNING_ANCHOR_KIND_VALUES = ['promise', 'constraint', 'milestone'] as const;
 
@@ -117,6 +128,7 @@ export const COMMAND_INTENT_VALUES = [
   'propose',
   'regenerate',
   'optimize',
+  'submit-review',
   'approve',
   'approve-batch',
   'reject',

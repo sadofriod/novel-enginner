@@ -113,6 +113,16 @@ export interface CommandInput {
   readonly frontmatter?: Record<string, unknown>;
   readonly sections?: Record<string, string>;
   readonly scenes?: Record<string, string>;
+  /** submit-review: proposal targeted by this review. */
+  readonly proposalId?: string;
+  /** submit-review: comment author. */
+  readonly author?: string;
+  /** submit-review: overall review comment. */
+  readonly overallComment?: string;
+  /** submit-review: new inline threads (each with a first comment), submitted atomically. */
+  readonly newThreads?: readonly NewReviewThreadDraft[];
+  /** submit-review: replies to existing threads. */
+  readonly replies?: readonly { readonly threadId: string; readonly body: string }[];
   readonly idempotencyKey: string;
 }
 
@@ -122,6 +132,69 @@ export interface SyncCommandInput {
   readonly requestedBy: string;
   readonly approvalMode: 'manual';
   readonly idempotencyKey: string;
+}
+
+/** An inline review thread anchored to a diff line range (GitHub PR-review style). */
+export interface ReviewThread {
+  readonly threadId: string;
+  readonly proposalId: string;
+  readonly field: string;
+  readonly side: 'L' | 'R';
+  readonly lineNumber: number;
+  readonly lineCount?: number;
+  readonly lineSnapshot: string;
+  readonly isResolved: boolean;
+  readonly resolvedBy?: string;
+  readonly resolvedAt?: string;
+  readonly createdAt: string;
+}
+
+export interface ReviewComment {
+  readonly commentId: string;
+  readonly threadId: string;
+  readonly author: string;
+  readonly body: string;
+  readonly createdAt: string;
+}
+
+export interface ReviewThreadWithComments {
+  readonly thread: ReviewThread;
+  readonly comments: readonly ReviewComment[];
+}
+
+/** One round of a proposal's supersedes chain (current → oldest). */
+export interface ProposalChainEntry {
+  readonly proposalId: string;
+  readonly artifactType: string;
+  readonly targetId: string;
+  readonly status: string;
+  readonly intent: string;
+  readonly supersedesProposalId?: string;
+  readonly basedOnCanonicalVersion: string;
+  readonly content?: string;
+  readonly threads: readonly ReviewThreadWithComments[];
+}
+
+/** A new inline thread drafted during review, submitted with the `submit-review` command. */
+export interface NewReviewThreadDraft {
+  readonly proposalId: string;
+  readonly field: string;
+  readonly side: 'L' | 'R';
+  readonly lineNumber: number;
+  readonly lineCount?: number;
+  readonly lineSnapshot: string;
+  readonly body: string;
+}
+
+/** Payload for creating a thread directly via REST (post-submit replies use `addThreadComment`). */
+export interface NewReviewThreadInput {
+  readonly field: string;
+  readonly side: 'L' | 'R';
+  readonly lineNumber: number;
+  readonly lineCount?: number;
+  readonly lineSnapshot: string;
+  readonly body: string;
+  readonly author?: string;
 }
 
 /**

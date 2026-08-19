@@ -19,21 +19,27 @@ import type {
   OverrideAuditSchema,
   PlanningAnchorSchema,
   PlotClueSchema,
+  ProposalReviewSchema,
   ProposalSchema,
   ProjectBriefSchema,
   RelationshipSchema,
   ResourceSchema,
+  ReviewCommentDraftSchema,
+  ReviewCommentSchema,
   ReviewFreshnessStateSchema,
   ReviewHardFailureSchema,
   ReviewerResultSchema,
+  ReviewThreadSchema,
   SceneParticipantStateSchema,
   SceneSkeletonSchema,
   SceneStateSliceSchema,
   StoryBlueprintSchema,
+  SubmitReviewInputSchema,
   TechRuleSchema,
   VolumeSchema,
   WorldFoundationSchema,
   WorkspaceValidityStateSchema,
+  NewReviewThreadSchema,
 } from './schema';
 
 export type StableId = string;
@@ -70,3 +76,9 @@ export type OverrideAudit = z.infer<typeof OverrideAuditSchema>;
 export type ReviewFreshnessState = z.infer<typeof ReviewFreshnessStateSchema>;
 export type ManualRiskState = z.infer<typeof ManualRiskStateSchema>;
 export type WorkspaceValidityState = z.infer<typeof WorkspaceValidityStateSchema>;
+export type ReviewThread = z.infer<typeof ReviewThreadSchema>;
+export type ReviewComment = z.infer<typeof ReviewCommentSchema>;
+export type NewReviewThread = z.infer<typeof NewReviewThreadSchema>;
+export type ReviewCommentDraft = z.infer<typeof ReviewCommentDraftSchema>;
+export type ProposalReview = z.infer<typeof ProposalReviewSchema>;
+export type SubmitReviewInput = z.infer<typeof SubmitReviewInputSchema>;

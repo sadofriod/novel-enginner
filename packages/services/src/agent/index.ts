@@ -1,4 +1,7 @@
 export * from './provider';
+export * from './model-config';
+export * from './model-resolver';
+export * from './composite-provider';
 export * from './model-tiers';
 export * from './capabilities/registry-parse';
 export * from './capabilities/discovery';

@@ -62,6 +62,15 @@ export async function applyPersistedProposalDecision(input: { readonly store: Ru
   if (proposal === undefined || snapshot === undefined) { input.eventBus.publish({ type: 'run.step.failed', runId: input.runId, emittedAt: new Date().toISOString(), data: { reason: proposal === undefined ? 'active proposal not found' : 'canonical snapshot not found' } }); return; }
   const reviewed = await ensureModelEvidenceReview({ proposal, store: input.store, options: input.options, persistenceEnabled });
   const reviewerResult = reviewed.reviewerResult ?? (await loadReviewerResult(reviewed.proposal, input.options, persistenceEnabled, input.store)).reviewerResult;
+  if (input.envelope.intent === 'approve' || input.envelope.intent === 'override-approve') {
+    const { countUnresolvedThreadsForProposalChain } = await import('./review');
+    const { isApproveBlockedByUnresolvedThreads } = await import('../../../workflow/review-lifecycle');
+    const unresolved = countUnresolvedThreadsForProposalChain(input.store, reviewed.proposal);
+    if (isApproveBlockedByUnresolvedThreads(unresolved, input.envelope.intent === 'override-approve')) {
+      input.eventBus.publish({ type: 'run.step.failed', runId: input.runId, emittedAt: new Date().toISOString(), data: { reason: `has ${unresolved} unresolved review thread(s); resolve before approving` } });
+      return;
+    }
+  }
   const decision = applyProposalCommand({ envelope: input.envelope, proposal: reviewed.proposal, currentCanonicalVersion: snapshot.snapshotId, workspaceValidity: input.getWorkspaceValidity(input.envelope.workspaceId), ...(reviewerResult === undefined ? {} : { reviewerResult }), requireReviewerResult: persistenceEnabled || input.options.loadReviewerResult !== undefined });
   if (!decision.accepted) { input.eventBus.publish({ type: 'run.step.failed', runId: input.runId, emittedAt: new Date().toISOString(), data: { reason: decision.reason } }); return; }
   // Keep the in-memory proposal in sync with the decision so the approval queue

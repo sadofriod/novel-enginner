@@ -1,4 +1,4 @@
-export type RuntimeRouteMethod = 'GET' | 'POST';
+export type RuntimeRouteMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 export interface RouteApi {
   handleRoot(): Response;
@@ -23,6 +23,14 @@ export interface RouteApi {
   handleSearch(request: Request): Promise<Response>;
   handleSyncCommand(syncIntent: string, request: Request): Promise<Response>;
   handleSyntheticReviewOutcome(request: Request): Promise<Response>;
+  handleListProposalThreads(proposalId: string): Promise<Response>;
+  handleGetProposalChain(proposalId: string): Promise<Response>;
+  handleCreateProposalThread(proposalId: string, request: Request): Promise<Response>;
+  handleAddThreadComment(threadId: string, request: Request): Promise<Response>;
+  handleResolveThread(threadId: string, request: Request): Promise<Response>;
+  handleUnresolveThread(threadId: string): Promise<Response>;
+  handleEditComment(commentId: string, request: Request): Promise<Response>;
+  handleDeleteComment(commentId: string): Promise<Response>;
 }
 
 export interface RuntimeRouteContext {

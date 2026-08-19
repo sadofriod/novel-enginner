@@ -17,6 +17,10 @@ import type { ApprovalAction } from '../components/ArtifactDetail';
 import { RtkCommandOperationsPanel } from '../components/RtkCommandOperationsPanel';
 import { useRunEventStream } from './use-run-event-stream';
 
+/**
+ * @deprecated Legacy console container. Superseded by the Workbench SPA at `/workspace`.
+ * Kept for reference; not routed.
+ */
 export function ControlConsoleContainer() {
   const { data: artifacts = [], refetch: refetchArtifacts } = useListArtifactsQuery(undefined, { pollingInterval: 5000 });
   const { data: runs = [], refetch: refetchRuns } = useListRunsQuery(undefined, { pollingInterval: 5000 });

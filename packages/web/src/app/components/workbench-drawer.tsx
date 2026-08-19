@@ -1,6 +1,7 @@
 /* eslint-disable complexity */
 import { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
+import { skipToken } from '@reduxjs/toolkit/query';
 
 import { Alert, Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Stack, Tab, Tabs, Typography } from '@mui/material';
 
@@ -10,8 +11,6 @@ import type { ProposalArtifactType } from '@novel-enginner/services/domain/value
 
 import type { RootState } from '../../store';
 import { ApprovalQueue, artifactKey, isActionableProposal } from '../../components/ApprovalQueue';
-import { BundledDiffView } from '../../components/BundledDiffView';
-import { ProposalDiffView } from '../../components/ProposalDiffView';
 import { RunTracePanel } from '../../components/RunTracePanel';
 import { InteractiveDerivedGraph } from './InteractiveDerivedGraph';
 import { CapabilityRegistryView } from './capability-registry-view';
@@ -23,6 +22,7 @@ import {
   useGetBootstrapConfigQuery,
   useGetWorkspaceGraphQuery,
   useListArtifactsQuery,
+  useListProposalThreadsQuery,
   useListRunsQuery,
   useSubmitCommandMutation,
 } from '../../control-api';
@@ -43,9 +43,11 @@ const TABS: readonly { readonly id: WorkbenchDrawerTab; readonly label: string }
 export function WorkbenchDrawer({
   tab,
   onTabChange,
+  onSelectArtifact,
 }: {
   readonly tab: WorkbenchDrawerTab;
   readonly onTabChange: (tab: WorkbenchDrawerTab) => void;
+  readonly onSelectArtifact?: (artifact: ArtifactSummary | undefined) => void;
 }) {
   const { data: artifacts = [] } = useListArtifactsQuery();
   const { data: runs = [] } = useListRunsQuery();
@@ -76,7 +78,14 @@ export function WorkbenchDrawer({
           <Tab key={item.id} value={item.id} label={item.label} />
         ))}
       </Tabs>
-      {tab === 'approval' && <ApprovalTab artifacts={artifacts} config={config} runCommand={runCommand} />}
+      {tab === 'approval' && (
+        <ApprovalTab
+          artifacts={artifacts}
+          config={config}
+          runCommand={runCommand}
+          {...(onSelectArtifact === undefined ? {} : { onSelectArtifact })}
+        />
+      )}
       {tab === 'runs' && <RunTracePanel runs={runs} />}
       {tab === 'graph' && <GraphTab graph={graph} />}
       {tab === 'capabilities' && <CapabilityRegistryView />}
@@ -86,22 +95,17 @@ export function WorkbenchDrawer({
 }
 
 /** Artifact types the LLM `optimize` intent supports as a single-file proposal. */
-const OPTIMIZABLE_ARTIFACT_TYPES: ReadonlySet<ProposalArtifactType> = new Set([
-  'chapter-manuscript',
-  'chapter-outline',
-  'volume-outline',
-  'world-foundation',
-  'story-blueprint',
-]);
 
 function ApprovalTab({
   artifacts,
   config,
   runCommand,
+  onSelectArtifact,
 }: {
   readonly artifacts: readonly ArtifactSummary[];
   readonly config: BootstrapConfig | undefined;
   readonly runCommand: (input: CommandInput) => Promise<CommandResult>;
+  readonly onSelectArtifact?: (artifact: ArtifactSummary | undefined) => void;
 }) {
   const [selected, setSelected] = useState<ArtifactSummary>();
   const [batchKeys, setBatchKeys] = useState<ReadonlySet<string>>(new Set());
@@ -109,6 +113,10 @@ function ApprovalTab({
   const [feedback, setFeedback] = useState<{ readonly kind: 'success' | 'error'; readonly message: string }>();
   const [lastRunId, setLastRunId] = useState<string>();
   const latestFailure = useSelector((state: RootState) => state.decisionFeedback.latest);
+  const selectedProposalId = selected?.activeProposalId;
+  const { data: threads = [] } = useListProposalThreadsQuery(selectedProposalId ?? skipToken);
+  const unresolvedCount = threads.filter((entry) => !entry.thread.isResolved).length;
+  const changedFieldCount = selected?.proposalDetail?.diffs.filter((diff) => diff.changed).length ?? 0;
 
   const actionable = artifacts.filter(isActionableProposal);
   const actionableKeys = new Set(actionable.map((artifact) => artifactKey(artifact.artifactType, artifact.targetId)));
@@ -132,8 +140,9 @@ function ApprovalTab({
       setSelected(undefined);
       setFeedback(undefined);
       setLastRunId(undefined);
+      onSelectArtifact?.(undefined);
     }
-  }, [actionableKeys, selected]);
+  }, [actionableKeys, selected, onSelectArtifact]);
 
   const handleAction = async (action: ApprovalAction): Promise<void> => {
     if (running) {
@@ -208,37 +217,6 @@ function ApprovalTab({
     }
   };
 
-  const handleOptimize = async (): Promise<void> => {
-    if (running || selected === undefined || config === undefined) {
-      return;
-    }
-    setRunning(true);
-    setFeedback(undefined);
-    setLastRunId(undefined);
-    try {
-      const result = await runCommand({
-        workspaceId: config.workspaceId,
-        bookId: config.bookId,
-        artifactType: selected.artifactType,
-        targetId: selected.targetId,
-        intent: 'optimize',
-        requestedBy: 'author-local',
-        approvalMode: 'manual',
-        idempotencyKey: `web-optimize-${selected.targetId}-${Date.now().toString(36)}`,
-      });
-      if (result.status === 'accepted') {
-        setLastRunId(result.runId);
-        setFeedback({ kind: 'success', message: `优化已提交（run ${result.runId}），等待生成 proposal…` });
-      } else {
-        setFeedback({ kind: 'error', message: result.message ?? `优化命令被拒绝（${result.code}）。` });
-      }
-    } catch (cause) {
-      setFeedback({ kind: 'error', message: cause instanceof Error ? cause.message : String(cause) });
-    } finally {
-      setRunning(false);
-    }
-  };
-
   const decisionFailure = lastRunId !== undefined && latestFailure?.runId === lastRunId ? latestFailure : undefined;
   const shownFeedback = decisionFailure === undefined
     ? feedback
@@ -268,7 +246,10 @@ function ApprovalTab({
       <ApprovalQueue
         artifacts={artifacts}
         {...(selected === undefined ? {} : { selectedKey: artifactKey(selected.artifactType, selected.targetId) })}
-        onSelect={setSelected}
+        onSelect={(artifact) => {
+          setSelected(artifact);
+          onSelectArtifact?.(artifact);
+        }}
         selectedKeys={batchKeys}
         onToggleSelect={toggleBatchKey}
       />
@@ -284,7 +265,7 @@ function ApprovalTab({
                   key={action}
                   size="small"
                   variant="outlined"
-                  disabled={running}
+                  disabled={running || (action === 'approve' && unresolvedCount > 0)}
                   onClick={() => void handleAction(action)}
                 >
                   {action}
@@ -296,32 +277,26 @@ function ApprovalTab({
               该工件当前没有待处理的 proposal。
             </Typography>
           )}
-          {OPTIMIZABLE_ARTIFACT_TYPES.has(selected.artifactType) ? (
-            <Button size="small" variant="outlined" color="secondary" disabled={running} onClick={() => void handleOptimize()}>
-              ✨ 优化（LLM → proposal）
-            </Button>
+          {unresolvedCount > 0 ? (
+            <Typography variant="caption" color="warning.main">
+              仍有 {unresolvedCount} 条未解决评论（含历史轮次），需全部解决后才能批准；override 可豁免。
+            </Typography>
+          ) : null}
+          {isActionableProposal(selected) ? (
+            <Box sx={{ display: 'grid', gap: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                差异摘要
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {changedFieldCount} 个字段发生变更；完整差异与行评论已在中央区展示。
+              </Typography>
+            </Box>
           ) : null}
           {shownFeedback === undefined ? null : (
             <Alert severity={shownFeedback.kind} sx={{ py: 0, '& .MuiAlert-message': { fontSize: 12 } }}>
               {shownFeedback.message}
             </Alert>
           )}
-          {isActionableProposal(selected) ? (
-            <Box sx={{ display: 'grid', gap: 1.5 }}>
-              <ProposalDiffView
-                proposalId={selected.activeProposalId ?? 'proposal-missing'}
-                artifactType={selected.artifactType}
-                targetId={selected.targetId}
-                basedOnCanonicalVersion={selected.proposalDetail?.basedOnCanonicalVersion ?? 'unknown'}
-                diffs={selected.proposalDetail?.diffs ?? []}
-                entityVersionRefs={selected.proposalDetail?.entityVersionRefs}
-              />
-              <BundledDiffView
-                proposalId={selected.activeProposalId ?? 'proposal-missing'}
-                entries={selected.bundledDiff ?? []}
-              />
-            </Box>
-          ) : null}
         </Paper>
       )}
     </Box>

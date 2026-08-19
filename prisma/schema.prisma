@@ -77,6 +77,8 @@ model Proposal {
   canonicalDraft  ProposalDraft?
   reviewerResults ReviewerResult[]
   overrideAudits  OverrideAudit[]
+  proposalReviews ProposalReview[]
+  reviewThreads   ReviewThread[]
 
   @@index([workspaceId, bookId])
   @@index([targetId])
@@ -96,6 +98,60 @@ model ProposalDraft {
 
   @@index([proposalId])
   @@map("proposal_drafts")
+}
+
+// ---------------------------------------------------------------------------
+// Proposal review comments (GitHub PR-review style)
+// ---------------------------------------------------------------------------
+
+model ProposalReview {
+  id             String   @id @default(uuid())
+  reviewId       String   @unique
+  proposalId     String
+  disposition    String
+  overallComment String?
+  submittedAt    DateTime
+  createdAt      DateTime @default(now())
+
+  proposal Proposal @relation(fields: [proposalId], references: [proposalId], onDelete: Cascade)
+
+  @@index([proposalId])
+  @@map("proposal_reviews")
+}
+
+model ReviewThread {
+  id           String   @id @default(uuid())
+  threadId     String   @unique
+  proposalId   String
+  field        String
+  side         String
+  lineNumber   Int
+  lineCount    Int      @default(1)
+  lineSnapshot String
+  isResolved   Boolean  @default(false)
+  resolvedBy   String?
+  resolvedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  proposal Proposal     @relation(fields: [proposalId], references: [proposalId], onDelete: Cascade)
+  comments ReviewComment[]
+
+  @@index([proposalId])
+  @@map("review_threads")
+}
+
+model ReviewComment {
+  id        String   @id @default(uuid())
+  commentId String   @unique
+  threadId  String
+  author    String
+  body      String
+  createdAt DateTime @default(now())
+
+  thread ReviewThread @relation(fields: [threadId], references: [threadId], onDelete: Cascade)
+
+  @@index([threadId])
+  @@map("review_comments")
 }
 
 // ---------------------------------------------------------------------------

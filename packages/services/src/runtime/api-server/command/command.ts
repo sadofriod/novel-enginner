@@ -206,6 +206,8 @@ export async function finalizeAcceptedCommand(validation: ReturnType<typeof vali
   await applyPersistedProposalDecision({ store: context.store, eventBus: context.eventBus, envelope: validation.envelope, runId: result.runId, getWorkspaceValidity: context.getWorkspaceValidity, options: context.options });
   const { applyPersistedProposalBatchDecision } = await import('../proposal/proposal');
   await applyPersistedProposalBatchDecision({ store: context.store, eventBus: context.eventBus, envelope: validation.envelope, runId: result.runId, getWorkspaceValidity: context.getWorkspaceValidity, options: context.options });
+  const { applySubmitReviewCommand } = await import('../proposal/review');
+  await applySubmitReviewCommand({ store: context.store, eventBus: context.eventBus, envelope: validation.envelope, runId: result.runId, payload: context.payload, getWorkspaceValidity: context.getWorkspaceValidity, options: context.options });
   await finalizeAuthorProposedArtifact(validation, result, context);
   await finalizeOptimizeCommand(validation, result, context);
   if (validation.envelope.intent === 'retrospective-review') {

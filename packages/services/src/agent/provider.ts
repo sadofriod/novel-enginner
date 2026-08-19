@@ -12,11 +12,17 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { generateText, tool } from 'ai';
 import { z } from 'zod';
 
-import { loadModelConfig, type ModelConfig } from './model-config';
+import { buildCompositeProvider, type TierSubProvider } from './composite-provider';
+import {
+  DEFAULT_OPENAI_MODEL_BY_TIER,
+  MODEL_TIER_VALUES,
+  loadModelConfig,
+  type ModelTier,
+} from './model-config';
+import { normalizeModelConfig, resolveProviderEntry, type NormalizedModelConfig } from './model-resolver';
 
-export const MODEL_TIER_VALUES = ['flagship', 'balanced', 'economy'] as const;
-
-export type ModelTier = (typeof MODEL_TIER_VALUES)[number];
+export { MODEL_TIER_VALUES, DEFAULT_OPENAI_MODEL_BY_TIER };
+export type { ModelTier } from './model-config';
 
 export interface ModelProviderConfig {
   readonly apiKey?: string | undefined;
@@ -87,12 +93,6 @@ export class ProviderConfigError extends Error {
     this.name = 'ProviderConfigError';
   }
 }
-
-const DEFAULT_OPENAI_MODEL_BY_TIER: Record<ModelTier, string> = {
-  flagship: 'gpt-4.1',
-  balanced: 'gpt-4.1-mini',
-  economy: 'gpt-4.1-nano',
-};
 
 /** Default V1 provider backed by the AI SDK's OpenAI adapter. */
 export class OpenAiModelProvider implements ModelProvider {
@@ -187,74 +187,42 @@ export class OpenAiModelProvider implements ModelProvider {
   }
 }
 
-const MODEL_ENV_KEY_BY_TIER: Record<ModelTier, string> = {
-  flagship: 'OPENAI_MODEL_FLAGSHIP',
-  balanced: 'OPENAI_MODEL_BALANCED',
-  economy: 'OPENAI_MODEL_ECONOMY',
-};
-
-function valueFrom(configValue: string | undefined, envValue: string | undefined): string | undefined {
-  return configValue ?? envValue;
-}
-
-/** Builds an optional config fragment, `undefined` when the value is unset (spread as a no-op). */
-function fragment<T>(value: T | undefined, build: (value: T) => object): object | undefined {
-  return value === undefined ? undefined : build(value);
-}
-
-function trimToValue(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed === undefined || trimmed === '' ? undefined : trimmed;
-}
-
-function resolveTierModel(
-  config: ModelConfig | undefined,
-  env: Readonly<Record<string, string | undefined>>,
+/**
+ * Builds one `OpenAiModelProvider` per tier from the resolved provider entry
+ * (multi-provider support), keeping a single `ModelProvider` seam.
+ */
+function buildTierSubProvider(
+  normalized: NormalizedModelConfig,
   tier: ModelTier,
-): string | undefined {
-  const fromConfig = config?.models?.[tier];
-  if (fromConfig !== undefined) {
-    return fromConfig;
-  }
-  return trimToValue(env[MODEL_ENV_KEY_BY_TIER[tier]]);
+): TierSubProvider {
+  const entry = resolveProviderEntry(normalized, tier);
+  const provider = new OpenAiModelProvider({
+    apiKey: entry.apiKey,
+    ...(entry.baseUrl === undefined ? {} : { baseUrl: entry.baseUrl }),
+    ...(entry.timeoutMs === undefined ? {} : { timeoutMs: entry.timeoutMs }),
+    modelByTier: { [tier]: entry.model },
+  });
+  return { provider, model: entry.model };
 }
 
-/** Resolves per-tier model ids from config file first, then environment. */
-function resolveModelByTier(
-  config: ModelConfig | undefined,
-  env: Readonly<Record<string, string | undefined>>,
-): Partial<Record<ModelTier, string>> {
-  const modelByTier: Partial<Record<ModelTier, string>> = {};
+function buildTierSubProviders(normalized: NormalizedModelConfig): Record<ModelTier, TierSubProvider> {
+  const byTier = {} as Record<ModelTier, TierSubProvider>;
   for (const tier of MODEL_TIER_VALUES) {
-    const model = resolveTierModel(config, env, tier);
-    if (model !== undefined) {
-      modelByTier[tier] = model;
-    }
+    byTier[tier] = buildTierSubProvider(normalized, tier);
   }
-  return modelByTier;
-}
-
-/** Returns the model map only when at least one tier was configured, so the provider keeps its defaults. */
-function nonEmptyModels(modelByTier: Partial<Record<ModelTier, string>>): Partial<Record<ModelTier, string>> | undefined {
-  return Object.keys(modelByTier).length === 0 ? undefined : modelByTier;
+  return byTier;
 }
 
 /**
- * Builds the default V1 provider from a config file (model.config.json) when present,
- * falling back to environment configuration. The config file supplies the provider's
- * `apiKey`, `baseUrl`, and per-tier `models` (模型名称 / key / baseURL), so local and
- * remote model wiring no longer depends on hardcoded OpenAI model ids.
+ * Builds the default multi-provider from a config file (model.config.json) when present,
+ * falling back to environment configuration for the implicit `default` provider. Each
+ * tier may resolve to a different provider entry (multi-provider support).
  */
 export function createDefaultModelProvider(
   env: Readonly<Record<string, string | undefined>> = process.env,
   workspaceRoot?: string,
 ): ModelProvider {
   const config = loadModelConfig(workspaceRoot);
-  const modelByTier = nonEmptyModels(resolveModelByTier(config, env));
-  return new OpenAiModelProvider({
-    apiKey: valueFrom(config?.apiKey, env['OPENAI_API_KEY']),
-    baseUrl: valueFrom(config?.baseUrl, env['OPENAI_BASE_URL']),
-    ...fragment(config?.timeoutMs, (timeoutMs) => ({ timeoutMs })),
-    ...fragment(modelByTier, (models) => ({ modelByTier: models })),
-  });
+  const normalized = normalizeModelConfig(config, env);
+  return buildCompositeProvider(buildTierSubProviders(normalized));
 }

@@ -1,15 +1,55 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { ModelTier } from './provider';
+export const MODEL_TIER_VALUES = ['flagship', 'balanced', 'economy'] as const;
 
-export interface ModelConfig {
-  readonly provider?: string;
+export type ModelTier = (typeof MODEL_TIER_VALUES)[number];
+
+/** Default model per tier, used when a tier has no explicit configuration. */
+export const DEFAULT_OPENAI_MODEL_BY_TIER: Record<ModelTier, string> = {
+  flagship: 'gpt-4.1',
+  balanced: 'gpt-4.1-mini',
+  economy: 'gpt-4.1-nano',
+};
+
+/** A named provider entry in the `providers` registry. `kind` is reserved for future vendors. */
+export interface ProviderEntry {
+  /** Provider vendor kind; `openai` (OpenAI-compatible) is the V1 implementation. */
+  readonly kind?: string;
   readonly baseUrl?: string;
   readonly apiKey?: string;
-  /** Per-tier model identifiers (模型名称), keyed by `flagship` / `balanced` / `economy`. */
-  readonly models?: Partial<Record<ModelTier, string>>;
-  /** Request timeout in ms. */
+  /** Per-provider request timeout override; falls back to the top-level `timeoutMs`. */
+  readonly timeoutMs?: number;
+}
+
+/** Per-tier model reference in the `models` map. */
+export interface TierModelRef {
+  /** Provider name in the `providers` registry. */
+  readonly provider: string;
+  readonly model: string;
+}
+
+/**
+ * Raw model provider configuration as read from `model.config.json`.
+ *
+ * Two shapes are accepted:
+ * - **Legacy flat** (backward compatible): `{ provider, baseUrl, apiKey, timeoutMs, models: { tier: "model" } }`
+ *   treated as a single implicit provider named `default`.
+ * - **Multi-provider registry**: `{ providers: { <name>: ProviderEntry }, models: { tier: { provider, model } } }`
+ *   where each tier may come from a different provider entry.
+ */
+export interface ModelConfig {
+  /** Registry of named providers (multi-provider shape). */
+  readonly providers?: Readonly<Record<string, ProviderEntry>>;
+  /** Per-tier model refs; a plain string means the implicit `default` provider. */
+  readonly models?: Partial<Record<ModelTier, TierModelRef | string>>;
+  /** Legacy flat shape: provider vendor kind for the implicit `default` provider. */
+  readonly provider?: string;
+  /** Legacy flat shape: baseUrl for the implicit `default` provider. */
+  readonly baseUrl?: string;
+  /** Legacy flat shape: apiKey for the implicit `default` provider. */
+  readonly apiKey?: string;
+  /** Default request timeout in ms for providers that do not override it. */
   readonly timeoutMs?: number;
 }
 

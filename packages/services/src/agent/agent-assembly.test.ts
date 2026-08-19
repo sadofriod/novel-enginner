@@ -92,7 +92,7 @@ describe('provider abstraction', () => {
 
   test('createDefaultModelProvider reads env configuration', () => {
     const provider = createDefaultModelProvider({ OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'https://example.test' });
-    expect(provider.providerId).toBe('openai');
+    expect(provider.providerId).toBe('composite');
   });
 });
 

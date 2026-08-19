@@ -9,6 +9,7 @@ import { EntityDetailView } from '../components/entity-detail';
 import { ChapterContentView } from '../components/chapter-view';
 import { WorkspaceTreeView } from '../components/workspace-tree';
 import { WorkbenchDrawer } from '../components/workbench-drawer';
+import { ReviewDiffPanel } from '../components/review-diff-panel';
 import { resolveSearchTarget } from '../components/search-locate';
 import { useWorkspaceEventStream } from '../use-workspace-event-stream';
 import {
@@ -23,6 +24,7 @@ import {
 import type { WorkspaceSelection } from '../components/workspace-tree';
 import type { WorkbenchDrawerTab } from '../components/workbench-drawer';
 import type { SearchResponse } from '../../api-types';
+import type { ArtifactSummary } from '@novel-enginner/services/runtime/store';
 
 /** Maps a tree selection kind to the `optimize` artifact type + action label (大纲/正文/细纲/设定). */
 const KIND_TO_OPTIMIZE: Readonly<Record<string, { readonly artifactType: string; readonly label: string }>> = {
@@ -39,6 +41,7 @@ export function WorkspaceWorkbench() {
   const [submitSync] = useSubmitSyncMutation();
   const [submitCommand] = useSubmitCommandMutation();
   const [selection, setSelection] = useState<WorkspaceSelection>();
+  const [reviewArtifact, setReviewArtifact] = useState<ArtifactSummary>();
   const [drawerTab, setDrawerTab] = useState<WorkbenchDrawerTab>('approval');
   const [searchQuery, setSearchQuery] = useState('');
   const [optimizing, setOptimizing] = useState(false);
@@ -174,34 +177,43 @@ export function WorkspaceWorkbench() {
             )}
           </Paper>
         )}
-        {trimmedQuery.length === 0 ? (
-          selection === undefined || (entity === undefined && !entityLoading) ? (
-            <EmptyState />
-          ) : entity === undefined ? (
-            <Paper variant="outlined" sx={{ p: 2.5 }}>
-              <Typography variant="body2" color="text.secondary">
-                加载内容…
-              </Typography>
-            </Paper>
+        {reviewArtifact === undefined ? (
+          trimmedQuery.length === 0 ? (
+            selection === undefined || (entity === undefined && !entityLoading) ? (
+              <EmptyState />
+            ) : entity === undefined ? (
+              <Paper variant="outlined" sx={{ p: 2.5 }}>
+                <Typography variant="body2" color="text.secondary">
+                  加载内容…
+                </Typography>
+              </Paper>
+            ) : (
+              <Paper variant="outlined" sx={{ p: 2.5 }}>
+                {selection !== undefined && selection.kind === 'chapter-outline' ? (
+                  <ChapterContentView
+                    key={selection.id}
+                    outlineEntity={entity}
+                    {...(manuscriptId === undefined ? {} : { manuscriptId })}
+                  />
+                ) : (
+                  <EntityDetailView entity={entity} />
+                )}
+              </Paper>
+            )
           ) : (
-            <Paper variant="outlined" sx={{ p: 2.5 }}>
-              {selection !== undefined && selection.kind === 'chapter-outline' ? (
-                <ChapterContentView
-                  key={selection.id}
-                  outlineEntity={entity}
-                  {...(manuscriptId === undefined ? {} : { manuscriptId })}
-                />
-              ) : (
-                <EntityDetailView entity={entity} />
-              )}
-            </Paper>
+            <SearchResults search={search} searching={searching} onLocate={handleLocate} />
           )
         ) : (
-          <SearchResults search={search} searching={searching} onLocate={handleLocate} />
+          <ReviewDiffPanel
+            key={reviewArtifact.activeProposalId}
+            artifact={reviewArtifact}
+            config={config}
+            onClose={() => setReviewArtifact(undefined)}
+          />
         )}
       </Box>
 
-      <WorkbenchDrawer tab={drawerTab} onTabChange={setDrawerTab} />
+      <WorkbenchDrawer tab={drawerTab} onTabChange={setDrawerTab} onSelectArtifact={setReviewArtifact} />
     </Box>
   );
 }

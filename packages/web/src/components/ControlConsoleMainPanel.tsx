@@ -22,6 +22,10 @@ export interface ControlConsoleMainPanelProps {
   readonly onAction: (action: ApprovalAction, note?: string) => void;
 }
 
+/**
+ * @deprecated Legacy console main panel. Superseded by the Workbench SPA's center
+ * `ReviewDiffPanel`; kept for reference only.
+ */
 export function ControlConsoleMainPanel({
   selected,
   lastCommand,

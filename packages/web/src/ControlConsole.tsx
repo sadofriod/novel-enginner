@@ -20,6 +20,12 @@ export interface ControlConsoleProps {
   readonly lastCommandRun?: RunRecord;
 }
 
+/**
+ * @deprecated Legacy 3-column approval console. Superseded by the Workbench SPA
+ * (`app/pages/workspace-workbench.tsx` + `WorkbenchDrawer`), which renders the diff
+ * in the center area with GitHub-PR-review-style inline threads. Kept for reference;
+ * not routed. Do not port new features here.
+ */
 export function ControlConsole({
   artifacts = [],
   runs = [],

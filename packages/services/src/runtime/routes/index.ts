@@ -21,6 +21,14 @@ import { getSearchRoute } from './search/get';
 import { postRebuildGraphRoute } from './sync/rebuild-graph/post';
 import { postReSyncStateRoute } from './sync/re-sync-state/post';
 import { postSyntheticReviewOutcomeRoute } from './review/synthetic-outcome/post';
+import { getProposalThreadsRoute } from './proposals/[proposalId]/threads/get';
+import { postProposalThreadsRoute } from './proposals/[proposalId]/threads/post';
+import { getProposalChainRoute } from './proposals/[proposalId]/chain/get';
+import { postThreadCommentsRoute } from './threads/[threadId]/comments/post';
+import { postThreadResolveRoute } from './threads/[threadId]/resolve/post';
+import { postThreadUnresolveRoute } from './threads/[threadId]/unresolve/post';
+import { patchCommentRoute } from './comments/[commentId]/patch';
+import { deleteCommentRoute } from './comments/[commentId]/delete';
 import type { RuntimeRouteDefinition } from './types';
 
 const ROUTES: readonly RuntimeRouteDefinition[] = [
@@ -47,6 +55,14 @@ const ROUTES: readonly RuntimeRouteDefinition[] = [
   postRebuildGraphRoute,
   postReSyncStateRoute,
   postSyntheticReviewOutcomeRoute,
+  getProposalThreadsRoute,
+  postProposalThreadsRoute,
+  getProposalChainRoute,
+  postThreadCommentsRoute,
+  postThreadResolveRoute,
+  postThreadUnresolveRoute,
+  patchCommentRoute,
+  deleteCommentRoute,
 ];
 
 export function listRegisteredRoutes(): readonly RuntimeRouteDefinition[] {

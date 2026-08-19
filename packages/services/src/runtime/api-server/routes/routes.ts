@@ -28,6 +28,7 @@ import { createWebCommandHandlers } from './handlers/web-commands';
 import { createWorkspaceHandlers } from './handlers/workspace';
 import { createGraphHandlers } from './handlers/graph';
 import { createSearchHandlers } from './handlers/search';
+import { createReviewHandlers } from './handlers/reviews';
 
 export function createApiServerRoutes(
   options: CreateApiServerOptions,
@@ -65,6 +66,7 @@ export function createApiServerRoutes(
   const workspaceHandlers = createWorkspaceHandlers(deps);
   const graphHandlers = createGraphHandlers(deps);
   const searchHandlers = createSearchHandlers(deps);
+  const reviewHandlers = createReviewHandlers(deps);
 
   const api: RouteApi = {
     handleRoot: redirectHandlers.handleRoot,
@@ -89,6 +91,14 @@ export function createApiServerRoutes(
     handleSearch: searchHandlers.handleSearch,
     handleSyncCommand: syncHandlers.handleSyncCommand,
     handleSyntheticReviewOutcome: syntheticReviewHandlers.handleSyntheticReviewOutcome,
+    handleListProposalThreads: reviewHandlers.handleListProposalThreads,
+    handleGetProposalChain: reviewHandlers.handleGetProposalChain,
+    handleCreateProposalThread: reviewHandlers.handleCreateProposalThread,
+    handleAddThreadComment: reviewHandlers.handleAddThreadComment,
+    handleResolveThread: reviewHandlers.handleResolveThread,
+    handleUnresolveThread: reviewHandlers.handleUnresolveThread,
+    handleEditComment: reviewHandlers.handleEditComment,
+    handleDeleteComment: reviewHandlers.handleDeleteComment,
   };
 
   const routes = listRegisteredRoutes();

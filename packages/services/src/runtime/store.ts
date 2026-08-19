@@ -1,5 +1,5 @@
 import type { CommandIntent, ProposalArtifactType, SystemTaskType } from '../domain/values';
-import type { Proposal, ReviewerResult } from '../domain';
+import type { Proposal, ProposalReview, ReviewComment, ReviewThread, ReviewerResult } from '../domain';
 import type { StableId } from '../domain/schema';
 import { WorkspaceSyncSession } from '../workspace/session';
 import type { RunSnapshotRef } from '../workflow/run-drift';
@@ -72,7 +72,11 @@ export class RuntimeStore {
   private readonly runsById = new Map<string, RunRecord>();
   private readonly artifactsByKey = new Map<string, ArtifactSummary>();
   private readonly proposalsByKey = new Map<string, Proposal>();
+  private readonly proposalsById = new Map<string, Proposal>();
   private readonly reviewerResultsByReviewResultId = new Map<string, ReviewerResult>();
+  private readonly proposalReviewsByReviewId = new Map<string, ProposalReview>();
+  private readonly reviewThreadsByThreadId = new Map<string, ReviewThread>();
+  private readonly reviewCommentsByCommentId = new Map<string, ReviewComment>();
   private readonly lastKnownSnapshotByWorkspaceId = new Map<
     string,
     import('../workspace/sync-engine').WorkspaceSnapshot
@@ -131,6 +135,7 @@ export class RuntimeStore {
 
   saveProposal(proposal: Proposal): void {
     this.proposalsByKey.set(artifactKey(proposal.artifactType, proposal.targetId), proposal);
+    this.proposalsById.set(proposal.proposalId, proposal);
   }
 
   getActiveProposal(artifactType: ProposalArtifactType, targetId: string): Proposal | undefined {
@@ -138,12 +143,47 @@ export class RuntimeStore {
   }
 
   getProposal(proposalId: string): Proposal | undefined {
-    for (const proposal of this.proposalsByKey.values()) {
-      if (proposal.proposalId === proposalId) {
-        return proposal;
-      }
-    }
-    return undefined;
+    return this.proposalsById.get(proposalId);
+  }
+
+  listAllProposals(): readonly Proposal[] {
+    return [...this.proposalsById.values()];
+  }
+
+  saveProposalReview(review: ProposalReview): void {
+    this.proposalReviewsByReviewId.set(review.reviewId, review);
+  }
+
+  listProposalReviews(proposalId: string): readonly ProposalReview[] {
+    return [...this.proposalReviewsByReviewId.values()].filter((review) => review.proposalId === proposalId);
+  }
+
+  saveReviewThread(thread: ReviewThread): void {
+    this.reviewThreadsByThreadId.set(thread.threadId, thread);
+  }
+
+  getReviewThread(threadId: string): ReviewThread | undefined {
+    return this.reviewThreadsByThreadId.get(threadId);
+  }
+
+  listReviewThreads(proposalId: string): readonly ReviewThread[] {
+    return [...this.reviewThreadsByThreadId.values()].filter((thread) => thread.proposalId === proposalId);
+  }
+
+  saveReviewComment(comment: ReviewComment): void {
+    this.reviewCommentsByCommentId.set(comment.commentId, comment);
+  }
+
+  getReviewComment(commentId: string): ReviewComment | undefined {
+    return this.reviewCommentsByCommentId.get(commentId);
+  }
+
+  listReviewComments(threadId: string): readonly ReviewComment[] {
+    return [...this.reviewCommentsByCommentId.values()].filter((comment) => comment.threadId === threadId);
+  }
+
+  deleteReviewComment(commentId: string): void {
+    this.reviewCommentsByCommentId.delete(commentId);
   }
 
   saveReviewerResult(reviewResultId: string, result: ReviewerResult): void {

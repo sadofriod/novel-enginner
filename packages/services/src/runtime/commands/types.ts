@@ -57,6 +57,7 @@ export const NEXT_EXPECTED_STATE_BY_INTENT: Record<CommandIntent, string> = {
   propose: 'proposal-pending',
   regenerate: 'proposal-pending',
   optimize: 'proposal-pending',
+  'submit-review': 'changes-requested',
   approve: 'canonical-committed',
   'approve-batch': 'canonical-committed',
   reject: 'proposal-rejected',

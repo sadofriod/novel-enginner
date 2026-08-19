@@ -6,10 +6,15 @@ import { prisma } from './client';
 import { findPersistedReviewerResult, persistReviewerResult } from './reviewer-results';
 
 const databaseAvailable = process.env['DATABASE_URL'] !== undefined && process.env['NODE_ENV'] !== 'test';
+const createdRunIds: string[] = [];
+const createdProposalIds: string[] = [];
 const createdResultIds: string[] = [];
 
 const reviewResultId = `result-reviewer-test-${Date.now().toString(36)}`;
 const proposalId = `proposal-reviewer-test-${Date.now().toString(36)}`;
+const runId = `run-reviewer-test-${Date.now().toString(36)}`;
+const workspaceId = `workspace-reviewer-test-${Date.now().toString(36)}`;
+const bookId = 'book-reviewer-test';
 
 const result: ReviewerResult = {
   approved: true,
@@ -34,6 +39,8 @@ afterEach(async () => {
     return;
   }
   await prisma.reviewerResult.deleteMany({ where: { reviewResultId: { in: createdResultIds } } });
+  await prisma.proposal.deleteMany({ where: { proposalId: { in: createdProposalIds } } });
+  await prisma.run.deleteMany({ where: { runId: { in: createdRunIds } } });
 });
 
 describe('reviewer result persistence', () => {
@@ -41,6 +48,33 @@ describe('reviewer result persistence', () => {
     if (!databaseAvailable) {
       return;
     }
+    createdRunIds.push(runId);
+    await prisma.run.create({
+      data: {
+        runId,
+        workspaceId,
+        bookId,
+        commandIntent: 'propose',
+        status: 'completed',
+        requestedBy: 'author-test',
+        idempotencyKey: `idem-run-${Date.now().toString(36)}`,
+      },
+    });
+    createdProposalIds.push(proposalId);
+    await prisma.proposal.create({
+      data: {
+        proposalId,
+        workspaceId,
+        bookId,
+        artifactType: 'chapter-outline',
+        targetId: 'chapter-reviewer-test',
+        status: 'pending-approval',
+        intent: 'propose',
+        origin: 'generated',
+        basedOnCanonicalVersion: 'snap-1',
+        parentRunId: runId,
+      },
+    });
     createdResultIds.push(reviewResultId);
     await persistReviewerResult(reviewResultId, proposalId, result);
 

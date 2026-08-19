@@ -9,6 +9,9 @@ import type { OverrideAudit } from '@novel-enginner/services/domain/schema';
 import type {
   BootstrapConfig,
   CommandInput,
+  NewReviewThreadInput,
+  ProposalChainEntry,
+  ReviewThreadWithComments,
   SearchResponse,
   SyncCommandInput,
   WorkspaceEntityDetail,
@@ -27,12 +30,12 @@ type CreateBootstrapSessionResult = {
   readonly sessionId: string;
 };
 
-type ApiTags = 'Artifact' | 'Run' | 'BootstrapSession' | 'BootstrapConfig' | 'Command' | 'Workspace';
+type ApiTags = 'Artifact' | 'Run' | 'BootstrapSession' | 'BootstrapConfig' | 'Command' | 'Workspace' | 'Review';
 
 export const controlApi = createApi({
   reducerPath: 'controlApi',
   baseQuery: fetchBaseQuery({ baseUrl: '/api' }),
-  tagTypes: ['Artifact', 'Run', 'BootstrapSession', 'BootstrapConfig', 'Command', 'Workspace'] satisfies readonly ApiTags[],
+  tagTypes: ['Artifact', 'Run', 'BootstrapSession', 'BootstrapConfig', 'Command', 'Workspace', 'Review'] satisfies readonly ApiTags[],
   endpoints: (builder) => ({
     listArtifacts: builder.query<readonly ArtifactSummary[], void>({
       query: () => '/artifacts',
@@ -122,6 +125,42 @@ export const controlApi = createApi({
       query: (query) => `/search?q=${encodeURIComponent(query)}`,
       providesTags: () => [],
     }),
+    listProposalThreads: builder.query<readonly ReviewThreadWithComments[], string>({
+      query: (proposalId) => `/proposals/${proposalId}/threads`,
+      providesTags: (_result, _error, proposalId) => [{ type: 'Review', id: proposalId }],
+    }),
+    getProposalChain: builder.query<readonly ProposalChainEntry[], string>({
+      query: (proposalId) => `/proposals/${proposalId}/chain`,
+      providesTags: (_result, _error, proposalId) => [{ type: 'Review', id: `chain:${proposalId}` }],
+    }),
+    createProposalThread: builder.mutation<unknown, { readonly proposalId: string } & NewReviewThreadInput>({
+      query: ({ proposalId, ...body }) => ({
+        url: `/proposals/${proposalId}/threads`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_result, _error, arg) => [{ type: 'Review', id: arg.proposalId }],
+    }),
+    addThreadComment: builder.mutation<unknown, { readonly threadId: string; readonly body: string; readonly author?: string }>({
+      query: ({ threadId, ...body }) => ({ url: `/threads/${threadId}/comments`, method: 'POST', body }),
+      invalidatesTags: ['Review'],
+    }),
+    resolveThread: builder.mutation<unknown, { readonly threadId: string; readonly by?: string }>({
+      query: ({ threadId, ...body }) => ({ url: `/threads/${threadId}/resolve`, method: 'POST', body }),
+      invalidatesTags: ['Review'],
+    }),
+    unresolveThread: builder.mutation<unknown, string>({
+      query: (threadId) => ({ url: `/threads/${threadId}/unresolve`, method: 'POST', body: {} }),
+      invalidatesTags: ['Review'],
+    }),
+    editComment: builder.mutation<unknown, { readonly commentId: string; readonly body: string }>({
+      query: ({ commentId, body }) => ({ url: `/comments/${commentId}`, method: 'PATCH', body: { body } }),
+      invalidatesTags: ['Review'],
+    }),
+    deleteComment: builder.mutation<unknown, string>({
+      query: (commentId) => ({ url: `/comments/${commentId}`, method: 'DELETE' }),
+      invalidatesTags: ['Review'],
+    }),
   }),
 });
 
@@ -144,4 +183,12 @@ export const {
   useGetWorkspaceEntityQuery,
   useGetWorkspaceGraphQuery,
   useSearchWorkspaceQuery,
+  useListProposalThreadsQuery,
+  useGetProposalChainQuery,
+  useCreateProposalThreadMutation,
+  useAddThreadCommentMutation,
+  useResolveThreadMutation,
+  useUnresolveThreadMutation,
+  useEditCommentMutation,
+  useDeleteCommentMutation,
 } = controlApi;

@@ -23,6 +23,14 @@ describe('registered runtime routes', () => {
     expect(routes).toContain('GET /search');
     expect(routes).toContain('POST /sync/rebuild-graph');
     expect(routes).toContain('POST /sync/re-sync-state');
+    expect(routes).toContain('GET /proposals/:proposalId/threads');
+    expect(routes).toContain('GET /proposals/:proposalId/chain');
+    expect(routes).toContain('POST /proposals/:proposalId/threads');
+    expect(routes).toContain('POST /threads/:threadId/comments');
+    expect(routes).toContain('POST /threads/:threadId/resolve');
+    expect(routes).toContain('POST /threads/:threadId/unresolve');
+    expect(routes).toContain('PATCH /comments/:commentId');
+    expect(routes).toContain('DELETE /comments/:commentId');
     expect(routes).toContain('GET /');
     expect(routes).toContain('GET /app');
   });

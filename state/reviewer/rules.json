@@ -1,6 +1,10 @@
 {
   "paragraphMinChars": 50,
   "paragraphMaxChars": 150,
+  "densityMaxConsecutiveParagraphs": 12,
+  "densityMaxParagraphRatio": 0.75,
+  "densityMinParagraphs": 4,
+  "outlineFieldMaxChars": 80,
   "bannedTerms": [
     "仿佛",
     "宛如",

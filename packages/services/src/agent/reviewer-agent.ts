@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { DimensionScoresSchema, ReviewHardFailureSchema } from '../domain/schema';
 import { REVIEW_HARD_FAILURE_VALUES } from '../domain/values';
 import type { ModelProvider } from './provider';
+import { loadReviewerRules } from './reviewer-rules-loader';
 import type { ModelEvidence } from './reviewer';
+import { DEFAULT_REVIEWER_RULE_THRESHOLDS } from './reviewer';
 
 const ModelEvidenceSchema = z.object({
   hardFailures: z.array(ReviewHardFailureSchema).readonly(),
@@ -70,15 +72,30 @@ export function parseReviewerModelEvidence(raw: string): ModelEvidence {
  * enumerates the exact dimension keys and hard-failure codes (and targets AI-flavor
  * filler), so local models return parseable evidence instead of generic dimensions
  * that previously made the reviewer look ineffective.
+ *
+ * Single source of truth: the banned terms and density thresholds rendered into the
+ * prompt come from `state/reviewer/rules.json` (via `loadReviewerRules`), the same
+ * file that drives the deterministic `detectRuleHardFailures` gate. When the rules
+ * file is unavailable (e.g. unit tests), the prompt degrades to empty arrays rather
+ * than inventing a separate hardcoded list.
  */
 export async function requestReviewerModelEvidence(
   provider: ModelProvider,
   artifactType: string,
   text: string,
   roleTemplate?: string,
+  workspaceRoot?: string,
 ): Promise<ModelEvidence> {
   const dimensionTemplate = DIMENSION_KEYS.map((key) => `"${key}":<0-100>`).join(',');
   const failureCodes = REVIEW_HARD_FAILURE_VALUES.join(', ');
+  let rules = DEFAULT_REVIEWER_RULE_THRESHOLDS;
+  try {
+    rules = await loadReviewerRules(workspaceRoot ?? process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd());
+  } catch {
+    // Degrade to defaults when the rules file is unavailable; the prompt below
+    // renders whatever the defaults/loaded rules contain.
+  }
+  const bannedTerms = rules.bannedTerms.join('、');
   const system = roleTemplate === undefined
     ? 'You are a strict fiction reviewer for Chinese web novels. Return JSON only, without markdown fences.'
     : `${roleTemplate}\n\nYou are the Reviewer role defined above. Return JSON only, without markdown fences.`;
@@ -87,7 +104,7 @@ export async function requestReviewerModelEvidence(
     system,
     prompt: `Review this ${artifactType} and return JSON (no markdown fences) shaped exactly as:
 {"hardFailures":[{"code":"<one of: ${failureCodes}>","message":"<reason>"}],"dimensionScores":{${dimensionTemplate}},"rewriteDirectives":["<concise actionable instruction>"]}
-Score every dimension 0-100. Flag AI-flavor filler (仿佛/宛如/深邃/不禁/心头一紧/难以言喻/这一刻) and empty scenic description as banned-terms-hit or exposition-overload hard failures. Use empty arrays when nothing applies.\n\n${text}`,
+Score every dimension 0-100. Flag AI-flavor filler (${bannedTerms}) and empty scenic description as banned-terms-hit or exposition-overload hard failures. Flag 动作/场景描写过密 (≥${rules.densityMaxConsecutiveParagraphs} consecutive pure action/scene paragraphs, or a prose body that is ≥${rules.densityMaxParagraphRatio} such description, with no dialogue, inner thought, or information advancement) as description-density, and flag outline structural fields (purpose/summary) over ${rules.outlineFieldMaxChars} characters as description-density. Use empty arrays when nothing applies.\n\n${text}`,
   });
   return parseReviewerModelEvidence(completion.text);
 }

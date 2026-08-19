@@ -73,8 +73,28 @@ describe('buildOptimizeInstructions', () => {
   test('demands a substantive rewrite with AI-flavor filler removal', () => {
     const instructions = buildOptimizeInstructions('chapter-0001', 'chapter-manuscript');
     expect(instructions).toContain('SUBSTANTIVE revision');
-    expect(instructions).toContain('仿佛');
     expect(instructions).toContain('canonical identity');
+    // Banned terms / density thresholds are NOT re-encoded here; they come from
+    // rules.json (system-hard-rules) and anti-ai-voice.prompt.md (project-policy).
+    expect(instructions).toContain('system-hard-rules');
+    expect(instructions).toContain('project-policy');
+    expect(instructions).not.toContain('仿佛');
+  });
+
+  test('forbids padding the diff with action/scene description instead of demanding a large diff', () => {
+    const instructions = buildOptimizeInstructions('chapter-0001', 'chapter-manuscript');
+    expect(instructions).toContain('禁止');
+    expect(instructions).toContain('注水');
+    expect(instructions).toContain('动作/场景');
+    expect(instructions).not.toContain('large and clearly visible');
+  });
+
+  test('includes the outline structural-field restraint for outline optimization', () => {
+    const instructions = buildOptimizeInstructions('chapter-0001-outline', 'chapter-outline');
+    expect(instructions).toContain('purpose');
+    expect(instructions).toContain('summary');
+    expect(instructions).toContain('简洁概括');
+    expect(instructions).toContain('system-hard-rules');
   });
 });
 

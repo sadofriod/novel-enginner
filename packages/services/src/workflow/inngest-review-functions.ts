@@ -48,10 +48,11 @@ export const syntheticReviewFunction = inngest.createFunction(
         );
       }
 
+      const workspaceRoot = process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd();
       const result = assembleReviewerResult(
         editedText,
-        await requestReviewerModelEvidence(createDefaultModelProvider(), artifactType, editedText),
-        await loadReviewerRules(process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd()),
+        await requestReviewerModelEvidence(createDefaultModelProvider(), artifactType, editedText, undefined, workspaceRoot),
+        await loadReviewerRules(workspaceRoot),
       );
 
       if (proposalId !== undefined) {

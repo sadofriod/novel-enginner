@@ -31,6 +31,19 @@ describe('review schema contracts', () => {
     ).toMatchObject({ approved: true, totalScore: 89 });
   });
 
+  test('ReviewerResultSchema accepts the description-density hard failure code', () => {
+    expect(
+      ReviewerResultSchema.parse({
+        approved: false,
+        hardFailures: [{ code: 'description-density', message: '动作/场景描写过密，缺少对白与信息推进' }],
+        dimensionScores: PASSING_SCORES,
+        totalScore: 40,
+        rewriteDirectives: [],
+        overrideEligible: true,
+      }),
+    ).toMatchObject({ approved: false });
+  });
+
   test('OverrideAuditSchema embeds a score snapshot and failed checks', () => {
     expect(
       OverrideAuditSchema.parse({

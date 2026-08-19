@@ -87,10 +87,11 @@ export const chapterManuscriptFunction = inngest.createFunction(
     let finalReview: ReviewerResult | undefined;
     for (let round = 1; round <= 2; round += 1) {
       const review = await step.run(`reviewer-round-${round}`, async () => {
+        const workspaceRoot = process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd();
         const result = assembleReviewerResult(
           draft.text,
-          await requestReviewerModelEvidence(provider, 'chapter-manuscript', draft.text),
-          await loadReviewerRules(process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd()),
+          await requestReviewerModelEvidence(provider, 'chapter-manuscript', draft.text, undefined, workspaceRoot),
+          await loadReviewerRules(workspaceRoot),
         );
         return result;
       });

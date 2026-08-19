@@ -16,6 +16,7 @@ import {
   type ReviewerResult,
 } from '../domain/schema';
 import type { ReviewHardFailureCode } from '../domain/values';
+import { detectDescriptionDensityHardFailures } from './reviewer-density';
 
 export const TOTAL_SCORE_PASS_THRESHOLD = 85;
 export const DIMENSION_SCORE_PASS_THRESHOLD = 75;
@@ -34,18 +35,34 @@ export interface ReviewerRuleThresholds {
   readonly paragraphMinChars: number;
   readonly paragraphMaxChars: number;
   readonly bannedTerms: readonly string[];
+  /** Max consecutive pure-description paragraphs before the density rule fires (signal 1). */
+  readonly densityMaxConsecutiveParagraphs: number;
+  /** Max share of pure-description paragraphs before the density rule fires (signal 2). */
+  readonly densityMaxParagraphRatio: number;
+  /** Minimum paragraph count before prose density is evaluated at all. */
+  readonly densityMinParagraphs: number;
+  /** Max length of an outline structural field (purpose/summary) before it counts as narrative. */
+  readonly outlineFieldMaxChars: number;
 }
 
 export const DEFAULT_REVIEWER_RULE_THRESHOLDS: ReviewerRuleThresholds = {
   paragraphMinChars: 50,
   paragraphMaxChars: 150,
   bannedTerms: [],
+  densityMaxConsecutiveParagraphs: 12,
+  densityMaxParagraphRatio: 0.75,
+  densityMinParagraphs: 4,
+  outlineFieldMaxChars: 80,
 };
 
 interface RawReviewerRulesFile {
   readonly paragraphMinChars?: unknown;
   readonly paragraphMaxChars?: unknown;
   readonly bannedTerms?: unknown;
+  readonly densityMaxConsecutiveParagraphs?: unknown;
+  readonly densityMaxParagraphRatio?: unknown;
+  readonly densityMinParagraphs?: unknown;
+  readonly outlineFieldMaxChars?: unknown;
 }
 
 export class ReviewerRuleParseError extends Error {
@@ -86,6 +103,13 @@ export function parseReviewerRules(raw: string): ReviewerRuleThresholds {
     paragraphMinChars: readNumber(raw2.paragraphMinChars, DEFAULT_REVIEWER_RULE_THRESHOLDS.paragraphMinChars),
     paragraphMaxChars: readNumber(raw2.paragraphMaxChars, DEFAULT_REVIEWER_RULE_THRESHOLDS.paragraphMaxChars),
     bannedTerms: readStringArray(raw2.bannedTerms),
+    densityMaxConsecutiveParagraphs: readNumber(
+      raw2.densityMaxConsecutiveParagraphs,
+      DEFAULT_REVIEWER_RULE_THRESHOLDS.densityMaxConsecutiveParagraphs,
+    ),
+    densityMaxParagraphRatio: readNumber(raw2.densityMaxParagraphRatio, DEFAULT_REVIEWER_RULE_THRESHOLDS.densityMaxParagraphRatio),
+    densityMinParagraphs: readNumber(raw2.densityMinParagraphs, DEFAULT_REVIEWER_RULE_THRESHOLDS.densityMinParagraphs),
+    outlineFieldMaxChars: readNumber(raw2.outlineFieldMaxChars, DEFAULT_REVIEWER_RULE_THRESHOLDS.outlineFieldMaxChars),
   };
 }
 
@@ -126,6 +150,15 @@ export function detectRuleHardFailures(
       message: `A paragraph falls outside the ${rules.paragraphMinChars}-${rules.paragraphMaxChars} char target range.`,
     });
   }
+
+  failures.push(
+    ...detectDescriptionDensityHardFailures(text, {
+      maxConsecutiveDescriptionParagraphs: rules.densityMaxConsecutiveParagraphs,
+      maxDescriptionParagraphRatio: rules.densityMaxParagraphRatio,
+      minParagraphsToEvaluate: rules.densityMinParagraphs,
+      outlineFieldMaxChars: rules.outlineFieldMaxChars,
+    }),
+  );
 
   return failures;
 }

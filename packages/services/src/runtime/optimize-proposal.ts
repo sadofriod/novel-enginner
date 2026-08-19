@@ -76,19 +76,38 @@ interface GeneratedContent {
 }
 
 /**
- * Builds the optimize task instructions demanding a SUBSTANTIVE rewrite: local
- * models trend conservative when told to "preserve" everything, which produced
- * proposals nearly identical to the canonical text. The instructions now make the
- * rewrite amplitude explicit (eliminate AI-flavor filler, vary rhythm, cut padding)
- * while still pinning the canonical identity and facts so the diff stays reviewable.
+ * Builds the optimize task instructions demanding a SUBSTANTIVE rewrite while
+ * explicitly forbidding padding. The previous wording demanded a "large, clearly
+ * visible diff", which made small local models pad the text with dense
+ * action/scene description to inflate the diff. Amplitude now means real
+ * narrative change (rhythm, presentation, cutting filler), never adding
+ * description for its own sake.
+ *
+ * Single source of truth: banned terms, density thresholds and the outline
+ * structural-field limit are NOT re-encoded here. They live in
+ * `state/reviewer/rules.json` and `prompts/anti-ai-voice.prompt.md`, which
+ * `executeAgentTask` injects as `system-hard-rules` + `project-policy` for
+ * prose artifact types. The instructions only carry the optimize-specific
+ * intent and point at those layers, so a change in `rules.json` never drifts
+ * from the generation prompt.
  */
 export function buildOptimizeInstructions(targetId: string, artifactType: string): string {
+  const isOutline = artifactType === 'chapter-outline' || artifactType === 'volume-outline';
+  const structuralRule = isOutline
+    ? [
+      '3. 大纲结构字段（sceneSkeleton 的 purpose、emotionCurve 的 summary）必须保持简洁概括，禁止写成正文式动作/场景长句；字段长度上限与判定规则见 system-hard-rules。',
+      '4. 只保留服务于章节类型、情绪曲线与伏笔计划的结构信息，删除堆砌性描述。',
+    ].join('\n')
+    : [
+      '3. 禁止注水：不得为扩大改动量而追加动作或场景描写；禁词、描写密度阈值与判定规则见 system-hard-rules，文风见 project-policy。',
+      '4. 删除信息量≈0 的句子（只描述无推进的动作/场景细节），保留真正推进情节、情绪曲线与伏笔的节拍。',
+    ].join('\n');
   return [
-    `Rewrite the canonical artifact "${targetId}" (${artifactType}) as a SUBSTANTIVE revision, not a light copyedit. The prose body must change meaningfully so the diff vs the original is large and clearly visible.`,
-    '1. Eliminate AI-flavor filler and empty scenic description wherever found (仿佛/宛如/不禁/深邃/心头一紧/难以言喻/这一刻/无声/静静/似乎): replace with concrete action, precise sensory detail, or delete outright.',
+    `Rewrite the canonical artifact "${targetId}" (${artifactType}) as a SUBSTANTIVE revision, not a light copyedit. The prose/structure must change meaningfully — but amplitude means real narrative change (rhythm, presentation, cutting filler), NOT adding description to enlarge the diff.`,
+    '1. Eliminate AI-flavor filler and empty scenic description wherever found: replace with concrete action, precise sensory detail, or delete outright.',
     '2. Vary sentence rhythm; break up monotonous parallel clauses; remove formulaic "action + internal monologue" filler beats; tighten redundant setup and transitions.',
-    '3. Keep only beats that serve the scene purpose, emotion curve, and foreshadowing; cut padding that merely inflates word count.',
-    '4. Preserve the canonical identity and facts: frontmatter (id/volumeId/status/sceneAnchorIds), scene anchors, characters, relationships, world facts, and plot beats. Do NOT invent new facts or change the story.',
+    structuralRule,
+    '5. Preserve the canonical identity and facts: frontmatter (id/volumeId/status/sceneAnchorIds), scene anchors, characters, relationships, world facts, and plot beats. Do NOT invent new facts or change the story.',
     'Return ONLY the complete rewritten canonical Markdown (frontmatter + scenes/sections) so it can be validated and diffed.',
   ].join('\n');
 }

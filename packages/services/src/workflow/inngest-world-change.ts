@@ -48,10 +48,11 @@ export const worldChangeFunction = inngest.createFunction(
     });
 
     const review = await step.run('reviewer-check', async () => {
+      const workspaceRoot = process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd();
       return assembleReviewerResult(
         worldChange.text,
-        await requestReviewerModelEvidence(createDefaultModelProvider(), 'world-change', worldChange.text),
-        await loadReviewerRules(process.env['NOVEL_WORKSPACE_ROOT'] ?? process.cwd()),
+        await requestReviewerModelEvidence(createDefaultModelProvider(), 'world-change', worldChange.text, undefined, workspaceRoot),
+        await loadReviewerRules(workspaceRoot),
       );
     });
 

@@ -16,7 +16,12 @@ import { DEFAULT_REVIEWER_RULE_THRESHOLDS } from './reviewer';
 import { loadReviewerRules } from './reviewer-rules-loader';
 import { stripAgentFrontmatter } from './role-template';
 
-export const PROSE_ARTIFACT_TYPES = ['chapter-manuscript'] as const;
+/**
+ * Artifact types that carry the prose style + density hard rules. Includes
+ * chapter-manuscript (full prose) and the outline artifacts, whose structural
+ * fields (purpose/summary) are also gated against narrative padding.
+ */
+export const PROSE_ARTIFACT_TYPES = ['chapter-manuscript', 'chapter-outline', 'volume-outline'] as const;
 
 export type ProseArtifactType = (typeof PROSE_ARTIFACT_TYPES)[number];
 
@@ -49,12 +54,14 @@ export function isProseArtifactType(artifactType: string): boolean {
   return (PROSE_ARTIFACT_TYPES as readonly string[]).includes(artifactType);
 }
 
-/** Renders the machine-enforced banned terms and paragraph bounds as hard rules. */
+/** Renders the machine-enforced banned terms, paragraph bounds, and density rule as hard rules. */
 export function formatBannedTermsHardRules(rules: ReviewerRuleThresholds): string {
   return [
     '硬规则（不得违反，命中即判硬失败）：',
     `- 段落长度 ${rules.paragraphMinChars}-${rules.paragraphMaxChars} 字。`,
     `- 禁词：${rules.bannedTerms.join('、')}。`,
+    `- 描写密度：正文连续 ${rules.densityMaxConsecutiveParagraphs} 段及以上纯动作/场景描写、或纯描写段落占比 ≥ ${rules.densityMaxParagraphRatio}，判为描写过密。`,
+    `- 大纲结构字段（purpose/summary）超过 ${rules.outlineFieldMaxChars} 字视为写成叙事，应改为简洁概括。`,
   ].join('\n');
 }
 

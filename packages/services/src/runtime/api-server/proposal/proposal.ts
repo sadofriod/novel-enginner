@@ -264,11 +264,12 @@ async function ensureModelEvidenceReview(input: EnsureModelEvidenceReviewInput):
   // Feed the Reviewer role template (agents/reviewer.agent.md) into the model call
   // so the documented role instructions (quality gates, hard-failure rules, override
   // semantics) actually shape the reviewer evidence instead of a bare prompt.
-  const roleTemplate = await resolveRoleTemplate(input.options.workspaceRoot ?? process.cwd(), 'reviewer');
-  const evidence = await requestReviewerModelEvidence(provider, input.proposal.artifactType, draft.content, roleTemplate);
+  const workspaceRoot = input.options.workspaceRoot ?? process.cwd();
+  const roleTemplate = await resolveRoleTemplate(workspaceRoot, 'reviewer');
+  const evidence = await requestReviewerModelEvidence(provider, input.proposal.artifactType, draft.content, roleTemplate, workspaceRoot);
   let rules = DEFAULT_REVIEWER_RULE_THRESHOLDS;
   try {
-    rules = await loadReviewerRules(input.options.workspaceRoot ?? process.cwd());
+    rules = await loadReviewerRules(workspaceRoot);
   } catch {
     // Fall back to the defaults when the rules file is unavailable (e.g. unit tests).
   }

@@ -200,6 +200,7 @@ export const REVIEW_HARD_FAILURE_VALUES = [
   'banned-terms-hit',
   'paragraph-length-violation',
   'exposition-overload',
+  'description-density',
   'motivation-drift',
   'tech-tree-violation',
   'clue-payoff-conflict',

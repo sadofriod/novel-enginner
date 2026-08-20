@@ -1,0 +1,20 @@
+[
+  {
+    "baseURL": "https://192.168.1.46:1234/v1",
+    "model": "oogle/gemma-4-26b-a4b-qat",
+    "apiKey": "LM-sutdio",
+    "type": "slice"
+  },
+  {
+    "baseURL": "https://192.168.1.46:1234/v1",
+    "model": "oogle/gemma-4-26b-a4b-qat",
+    "apiKey": "LM-sutdio",
+    "type": "judge"
+  },
+  {
+    "baseURL": "https://192.168.1.46:1234/v1",
+    "model": "qwen3-embedding-4b-dwq",
+    "apiKey": "LM-sutdio",
+    "type": "embedding"
+  }
+]
